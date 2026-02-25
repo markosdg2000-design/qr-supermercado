@@ -1,0 +1,5048 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#111111">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Medianos Scan (Foto + Operación)</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#111;color:#fff}
+    header{padding:12px 14px;background:#1b1b1b;position:sticky;top:0;z-index:10}
+    .wrap{padding:12px;display:grid;gap:10px}
+    input,button,textarea{font-size:18px;padding:12px;border-radius:10px;border:1px solid #333}
+    input,textarea{width:100%;background:#0b0b0b;color:#fff}
+    button{background:#2b6cff;color:#fff;border:none;font-weight:900}
+    button.secondary{background:#333}
+    .card{background:#1b1b1b;border:1px solid #2a2a2a;border-radius:14px;padding:12px}
+    .muted{color:#bbb}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row>*{flex:1;min-width:140px}
+    .center{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:200px}
+    .big{font-size:56px;font-weight:1000;line-height:1.05;color:#ff3b3b;letter-spacing:0.5px}
+    .mid{font-size:30px;font-weight:900;line-height:1.15;color:#ff3b3b;margin-top:10px}
+    .status{font-size:14px;color:#bbb;margin-top:10px}
+    .scanBig{font-size:22px;padding:16px;border-radius:14px}
+    .hint{font-size:12px;color:#9a9a9a}
+    .ops{max-height:240px;overflow:auto;margin-top:10px;display:grid;gap:10px}
+    .opBtn{background:#202020;border:1px solid #333;color:#fff;font-weight:800}
+    .opTitle{font-size:14px;color:#bbb;margin-top:8px}
+    details summary{cursor:pointer}
+    code{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+  
+    .station-toggle{display:flex;justify-content:center;align-items:center;gap:10px;margin-bottom:10px}
+    .station-toggle .lbl{font-weight:800;color:#b9c7ff;font-size:14px;min-width:64px;text-align:center}
+    .switch{width:96px;height:40px;border-radius:999px;border:1px solid #2a3a64;background:rgba(110,168,255,.18);position:relative;cursor:pointer}
+    .switch .knob{display:block;width:36px;height:36px;border-radius:999px;background:#e9f0ff;position:absolute;top:1px;left:2px;transition:transform .18s ease;box-shadow:0 8px 18px rgba(0,0,0,.35)}
+    .switch[data-on="true"] .knob{transform:translateX(54px)}
+
+  </style>
+  <script src="js/jsqr.js"></script>
+</head>
+<body>
+<header>
+  <div class="station-toggle" title="Selecciona estación">
+    <span class="lbl">ES0304</span>
+    <button id="stationSwitch" class="switch" type="button" aria-label="Cambiar estación"><span class="knob"></span></button>
+    <span class="lbl">ES05</span>
+  </div>
+  <div id="hdr" class="muted">Estación: — | Serie: — | Datos: —</div>
+</header>
+
+<div class="wrap">
+
+
+  <div class="card">
+    <div class="muted">1) Nº Serie</div>
+    <input id="serie" inputmode="numeric" placeholder="Ej. 61502009" />
+    <div class="row" style="margin-top:10px;">
+      <button id="start">Empezar</button>
+      <button id="reset" class="secondary">Reset</button>
+    </div>
+    <div id="err" class="muted" style="margin-top:8px;"></div>
+    <div class="hint" style="margin-top:6px;">Tip: queda guardado en el móvil (no repetir si no cambia el coche).</div>
+  </div>
+
+  <div class="card">
+    <div class="muted">2) Escaneo por foto</div>
+    <input id="file" type="file" accept="image/*" capture="environment" style="display:none"/>
+    <div class="row" style="margin-top:10px;">
+      <button id="scan" class="scanBig">ESCANEAR</button>
+      <button id="autoscan" class="secondary">Auto-siguiente: ON</button>
+    </div>
+    <div class="hint" style="margin-top:8px;">Auto-siguiente: tras ENCONTRADO/NO, reabre cámara automáticamente. Si hay varias operaciones, espera a que elijas.</div>
+  </div>
+
+  <div class="card">
+    <div class="center">
+      <div id="zona" class="mid">—</div>
+      <div id="maleta" class="big"></div>
+      <div id="status" class="status">Listo</div>
+    </div>
+
+    <div id="opWrap" style="display:none;">
+      <div class="opTitle">Este componente aparece en varias operaciones. Elige una:</div>
+      <div id="ops" class="ops"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+
+/* ===== Browser guard (MIUI/Mi Browser suele fallar con QR) ===== */
+(function browserGuard(){
+  try{
+    const ua = navigator.userAgent || "";
+    const isChromium = /Chrome\/|Chromium\/|Edg\/|OPR\/|SamsungBrowser\//i.test(ua);
+    const isXiaomi = /MiuiBrowser|XiaoMi|Mi Browser/i.test(ua);
+    if (!isChromium || isXiaomi){
+      const msg = "⚠️ Navegador no fiable para QR. Recomendado: Chrome o Edge.";
+      if (typeof showErr === "function") showErr(msg);
+      else console.warn(msg);
+    }
+  }catch(_){}
+})();
+
+// ====== DATA (pegado/integrado) ======
+// IMPORTANTE: No se usa DATA.rows. Se navega por el JSON anidado: DATA[ESTACION][MODELO][...][QR] -> [{Operacion, Ubicacion, Maleta}, ...]
+
+const DATA = {
+  "ES0304": {
+    "C130": {
+      "BB236556115M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 115",
+            "Ubicacion": "SALA",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236556116M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 116",
+            "Ubicacion": "SALA",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236556121M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 121",
+            "Ubicacion": "SALA",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236556170M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 170",
+            "Ubicacion": "SALA",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236134300C201": {
+        "BB23613430500B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "2+CESTA 1"
+          }
+        ],
+        "BB23613430600B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "2+CESTA 1"
+          }
+        ],
+        "BB23613430400C0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "2+CESTA 1"
+          }
+        ]
+      },
+      "BB236449140M201": {
+        "BB2364491310000": [
+          {
+            "Operacion": "CONJUNTO CONDUCTO EQUIPADO",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236086102C301": {
+        "BB2360861190000P": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ],
+        "BB2360861700000P": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ],
+        "BB23639010009A0": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236086101C301": {
+        "STD10146417": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO LADO SALA 120-130",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236502120C201": {
+        "BB2365021300000": [
+          {
+            "Operacion": "INSTALACIÓN PUERTAS ACCESO C 130/120/310",
+            "Ubicacion": "SALA",
+            "Maleta": "4"
+          }
+        ],
+        "BB2365021290000": [
+          {
+            "Operacion": "INSTALACIÓN PUERTAS ACCESO C 130/120/310",
+            "Ubicacion": "SALA",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236963100M201": {
+        "BB2369631010000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 191 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ],
+        "BB2369631020000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 191 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236964100M201": {
+        "BB2369641020000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 192 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ],
+        "BB2369641030000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 192 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236961100M201": {
+        "BB2369611300000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 196-396 C130/120/310",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236220100C201": {
+        "BB2362201000900P": [
+          {
+            "Operacion": "MONTAJE PISO ACABADO CABINA",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ],
+        "BB2362201001000P": [
+          {
+            "Operacion": "MONTAJE PISO ACABADO CABINA",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB2360861470000": {
+        "BB2360861970000P": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA",
+            "Ubicacion": "SALA",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236030100C201": {
+        "BB2360301000100": [
+          {
+            "Operacion": "INSTALACIÓN TUBERÍA NEUMÁTICA B/B C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360301000200": [
+          {
+            "Operacion": "INSTALACIÓN TUBERÍA NEUMÁTICA B/B C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236322100C201": {
+        "BB2360111090000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ],
+        "STD10146160": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ],
+        "STD10146417": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ],
+        "BB2364371000200": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ],
+        "BB2364371000300": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ],
+        "BB2364371020000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ],
+        "BB2364371030000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "7+CESTA 2"
+          }
+        ]
+      },
+      "BB236016100C210": {
+        "STD1256302600P": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 B (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "8"
+          }
+        ],
+        "STD12563026": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 B (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236016100C207": {
+        "BB2361941033000": [
+          {
+            "Operacion": "M.S B/BASTIDOR C130 REM D4.8 D (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236016100C209": {
+        "STD1257459900P": [
+          {
+            "Operacion": "M.S B/BASTIDOR C130 REM D9.5 A (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236040100C201": {
+        "BB2360401010200": [
+          {
+            "Operacion": "MONTAJE AIRE ACONDIC. CABINA C130-120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9"
+          }
+        ],
+        "BB2365101000100": [
+          {
+            "Operacion": "MONTAJE AIRE ACONDIC. CABINA C130-120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9"
+          }
+        ]
+      },
+      "BB236017100C201": {
+        "BB236017101M201": [
+          {
+            "Operacion": "MONTAJE ANTENAS C130-C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236051100C202": {
+        "BB2360511010000P": [
+          {
+            "Operacion": "MONTAJE ARENEROS BAJO BASTIDOR",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11+CESTA 3"
+          }
+        ]
+      },
+      "BB236009100C503": {
+        "BB2360091020000P": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11+CESTA 3"
+          }
+        ],
+        "BB2360091000300": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11+CESTA 3"
+          }
+        ],
+        "BB23600910700A0P": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11+CESTA 3"
+          }
+        ]
+      },
+      "BB236301100M202": {
+        "BB2363011010000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "12+CESTA 4"
+          }
+        ],
+        "BB2363011020000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "12+CESTA 4"
+          }
+        ],
+        "BB2363011002100": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "12+CESTA 4"
+          }
+        ],
+        "BB2363011002000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "12+CESTA 4"
+          }
+        ]
+      },
+      "BB236298100C201": {
+        "BB2362981000100": [
+          {
+            "Operacion": "MONTAJE COMPRESOR COCHES CABINA",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "13"
+          }
+        ],
+        "BB2361451000800": [
+          {
+            "Operacion": "MONTAJE COMPRESOR COCHES CABINA",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "13"
+          }
+        ]
+      },
+      "BB236206100C201": {
+        "BB2362061010100": [
+          {
+            "Operacion": "MONTAJE PANTÓGRAFO 130 Y 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "13"
+          }
+        ],
+        "SPT0000071198": [
+          {
+            "Operacion": "MONTAJE PANTÓGRAFO 130 Y 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "13"
+          }
+        ]
+      },
+      "BB236027100C201": {
+        "BB2360271000100": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "13"
+          }
+        ],
+        "BB2360271000200": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "13"
+          }
+        ],
+        "BB2360271000300": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "13"
+          }
+        ],
+        "BB2360271000400": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "13"
+          }
+        ]
+      },
+      "BB236954100C201": {
+        "BB2360971050000": [
+          {
+            "Operacion": "MONTAJE RACK NEUMÁTICO CABINA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "14"
+          }
+        ]
+      },
+      "BB236015100C503": {
+        "BB2360151260000P": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-1DE4+CESTA 5"
+          }
+        ],
+        "BB2360071000200": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-1DE4+CESTA 5"
+          }
+        ],
+        "BB2360151001000": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-1DE4+CESTA 5"
+          }
+        ],
+        "BB2361501001000": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-1DE4+CESTA 5"
+          }
+        ],
+        "BB23600910500A0": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-1DE4+CESTA 5"
+          }
+        ],
+        "BB23601512002A0": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-2DE4+CESTA 5"
+          },
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-2DE4+CESTA 5"
+          }
+        ],
+        "BB2360151280000P": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-2DE4+CESTA 5"
+          }
+        ],
+        "BB23601512701A0": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-2DE4+CESTA 5"
+          }
+        ],
+        "BB2360151360000P": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-2DE4+CESTA 5"
+          }
+        ],
+        "BB23615010300A0P": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-2DE4+CESTA 5"
+          }
+        ],
+        "BB24827510300A0P": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-3DE4"
+          }
+        ],
+        "BB23601513800A0": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-4DE4"
+          }
+        ],
+        "BB2361501001200": [
+          {
+            "Operacion": "CABLEAR CONECTAR CONTROL B.BASTIDOR C130",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15-4DE4"
+          }
+        ]
+      },
+      "BB236006100C500": {
+        "BB2360061001100": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-1DE3"
+          }
+        ],
+        "BB23600611200A0": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-1DE3"
+          }
+        ],
+        "BB24862730001A0": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-1DE3"
+          }
+        ],
+        "BB2369363310000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-2DE3"
+          }
+        ],
+        "BB2367192320000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-2DE3"
+          }
+        ],
+        "BB2486273020000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-3DE3"
+          }
+        ],
+        "BB2360061080001P": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C130",
+            "Ubicacion": "SALA",
+            "Maleta": "16-3DE3"
+          }
+        ]
+      },
+      "BB236559100C501": {
+        "BB2365591010000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 130",
+            "Ubicacion": "SALA",
+            "Maleta": "17-1DE3+CESTA 6"
+          }
+        ],
+        "BB2365591030000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 130",
+            "Ubicacion": "SALA",
+            "Maleta": "17-1DE3+CESTA 6"
+          }
+        ],
+        "BB2365591070000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 130",
+            "Ubicacion": "SALA",
+            "Maleta": "17-1DE3+CESTA 6"
+          }
+        ],
+        "BB2365591090000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 130",
+            "Ubicacion": "SALA",
+            "Maleta": "17-2DE3"
+          }
+        ],
+        "BB2365591130000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 130",
+            "Ubicacion": "SALA",
+            "Maleta": "17-3DE3+CESTA7"
+          }
+        ],
+        "BB23655910500B0": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 130",
+            "Ubicacion": "SALA",
+            "Maleta": "17-3DE3+CESTA7"
+          }
+        ]
+      },
+      "BB23600710C501": {
+        "BB2360071000200": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ],
+        "BB2360071005000": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ],
+        "BB2360071000400": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ],
+        "BB2360071000600": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ],
+        "BB2360071000700": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ],
+        "BB2360071030000P": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ],
+        "BB2360071700000": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "18+CESTA 8"
+          }
+        ]
+      },
+      "BB23600710C502": {
+        "BB2360071500000": [
+          {
+            "Operacion": "PRENSAR TERMINALES POTENCIA FD-A101 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 9"
+          }
+        ]
+      },
+      "BB236008100C500": {
+        "BB2360081000100": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "19"
+          }
+        ],
+        "BB2360081000300": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "19"
+          }
+        ],
+        "BB2360081000200": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "19"
+          }
+        ]
+      },
+      "BB236325100C501": {
+        "BB23600713001A0": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "20+CESTA 10"
+          }
+        ],
+        "BB2360071300200": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "20+CESTA 10"
+          }
+        ],
+        "BB23600714100A0P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "20+CESTA 10"
+          }
+        ],
+        "BB2360071320000P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "20+CESTA 10"
+          }
+        ]
+      },
+      "BB236133100C501": {
+        "BB2364561002200": [
+          {
+            "Operacion": "CONECTAR PUPITRE C130",
+            "Ubicacion": "SALA",
+            "Maleta": "21"
+          }
+        ],
+        "BB23645613600A0": [
+          {
+            "Operacion": "CONECTAR PUPITRE C130",
+            "Ubicacion": "SALA",
+            "Maleta": "21"
+          }
+        ],
+        "BB23645613300B0": [
+          {
+            "Operacion": "CONECTAR PUPITRE C130",
+            "Ubicacion": "SALA",
+            "Maleta": "21"
+          }
+        ]
+      },
+      "BB23600710C503": {
+        "BB2360071230100": [
+          {
+            "Operacion": "CONECTAR POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 11"
+          },
+          {
+            "Operacion": "CONECTAR POTENCIA S.CUBIERTA COCHE 130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 11"
+          }
+        ]
+      },
+      "BB236455100C251": {
+        "BB2364551090000": [
+          {
+            "Operacion": "MONTAJE CANALES CLIMA ES04",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 12"
+          }
+        ],
+        "BB2364551100000": [
+          {
+            "Operacion": "MONTAJE CANALES CLIMA ES04",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 12"
+          }
+        ]
+      },
+      "BB236209100C201": {
+        "BB2362091011800": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362091012000": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362091001100P": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362091001200P": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362091001300P": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362091001400P": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362841030000P": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2362841040000": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB2360521180000": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ],
+        "BB23628410500A0": [
+          {
+            "Operacion": "MONTAJE WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "22+CESTA 13"
+          }
+        ]
+      },
+      "BB236314100C201": {
+        "BB2363141010000": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141020000": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141000700": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141001300P": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141001400P": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141001500P": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141001700P": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB2363141001800P": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ],
+        "BB23631410024A0P": [
+          {
+            "Operacion": "MONTAJES TUBERÍAS WC",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "23+CESTA 14"
+          }
+        ]
+      },
+      "BB236473100C201": {
+        "STD1221221800P": [
+          {
+            "Operacion": "MONTAJE ASIDEROS Y ESCALERA ACCESO CABIN",
+            "Ubicacion": "SALA",
+            "Maleta": "PASAR A\r\nSUELO"
+          }
+        ]
+      },
+      "BB236290200C201": {
+        "BB2362902010000P": [
+          {
+            "Operacion": "MONTAJE BATERIAS DE TRACCION CABINA",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "PASAR A\r\nSUELO"
+          }
+        ]
+      }
+    },
+    "C210": {
+      "BB236035300C503": {
+        "BB2360353100000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL S CUBIERTA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "1"
+          }
+        ],
+        "BB2360353600200P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL S CUBIERTA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "1"
+          }
+        ],
+        "BB2360353610000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL S CUBIERTA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "1"
+          }
+        ],
+        "BB2360353800000": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL S CUBIERTA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "1"
+          }
+        ],
+        "BB2360081000100": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL S CUBIERTA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "2"
+          }
+        ],
+        "BB2360353200000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL S CUBIERTA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236606300C505": {
+        "BB2366063030000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR BAJO BASTIDOR C210",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236134300C201": {
+        "BB23613430500B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "4"
+          }
+        ],
+        "BB23613430600B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "4"
+          }
+        ],
+        "BB23613430400C0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 3"
+          }
+        ]
+      },
+      "BB236478301C301": {
+        "STD10146417": [
+          {
+            "Operacion": "MONTAJE REVEST. TESTERO LADO SALA C210",
+            "Ubicacion": "SALA",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236976300C301": {
+        "BB2369763001200": [
+          {
+            "Operacion": "ESTRUCTURA PUERTA ARMARIO C 210.",
+            "Ubicacion": "SALA",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236016300C208": {
+        "STD12577670": [
+          {
+            "Operacion": "M.S. B/BASTIDOR C210 REM D9.5 A",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236235300C301": {
+        "BB2362353000100": [
+          {
+            "Operacion": "MONT CONDUCTOS TECHO CENTRAL VESTI. C210",
+            "Ubicacion": "SALA",
+            "Maleta": "7"
+          }
+        ],
+        "BB23623531525A0": [
+          {
+            "Operacion": "MONT CONDUCTOS TECHO CENTRAL VESTI. C210",
+            "Ubicacion": "SALA",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB236273300C201": {
+        "BB2360323000300P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          },
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360323000400P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          },
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360323000500P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          },
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360323220000P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          },
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PB C21",
+            "Ubicacion": "SALA",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236302300C101": {
+        "STD10004464": [
+          {
+            "Operacion": "TUBERÍA NEUM. B/B LADO1 C210",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236302300C102": {
+        "STD10004464": [
+          {
+            "Operacion": "TUBERÍA NEUM. B/B LADO2 C210",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236375300C201": {
+        "BB2360763140000P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PA C21",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 1"
+          },
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PA C21",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2360763150000P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PA C21",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 1"
+          },
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PA C21",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2367333040000P": [
+          {
+            "Operacion": "MONT. ESTRUCTURA TECHOS LATERALES PA C21",
+            "Ubicacion": "SALA",
+            "Maleta": "9+ CESTA 1"
+          }
+        ]
+      },
+      "BB236478308C301": {
+        "BB2360861190000P": [
+          {
+            "Operacion": "MONTAJE REVEST. TESTERO LADO FUELLE C210",
+            "Ubicacion": "SALA",
+            "Maleta": "10"
+          }
+        ],
+        "BB2360861700000P": [
+          {
+            "Operacion": "MONTAJE REVEST. TESTERO LADO FUELLE C210",
+            "Ubicacion": "SALA",
+            "Maleta": "10"
+          }
+        ],
+        "BB23639010009A0": [
+          {
+            "Operacion": "MONTAJE REVEST. TESTERO LADO FUELLE C210",
+            "Ubicacion": "SALA",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236627300C201": {
+        "BB2366273000300": [
+          {
+            "Operacion": "MONTAJE EXTRACTOR COCHE 210",
+            "Ubicacion": "SALA",
+            "Maleta": "11"
+          }
+        ],
+        "BB2366273040000P": [
+          {
+            "Operacion": "MONTAJE EXTRACTOR COCHE 210",
+            "Ubicacion": "SALA",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236673300C201": {
+        "BB2366733000200": [
+          {
+            "Operacion": "MONTAJE DISTRIBUCIÓN CLIMA C210",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ],
+        "BB2366733190100": [
+          {
+            "Operacion": "MONTAJE DISTRIBUCIÓN CLIMA C210",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ],
+        "BB2366733190200": [
+          {
+            "Operacion": "MONTAJE DISTRIBUCIÓN CLIMA C210",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ]
+      },
+      "BB236675383C201": {
+        "BB2366753370000": [
+          {
+            "Operacion": "MONT. TUERCAS CARRIL PL. BAJA C210",
+            "Ubicacion": "SALA",
+            "Maleta": "13"
+          }
+        ]
+      },
+      "BB236937300C501": {
+        "BB2361723020100": [
+          {
+            "Operacion": "MONT PANELES  ELECTRICOS  210 LADO 2",
+            "Ubicacion": "SALA",
+            "Maleta": "14"
+          }
+        ]
+      },
+      "BB236947300C501": {
+        "BB2361723020100": [
+          {
+            "Operacion": "MONTAJE  PANELES ELECTRICO  210 LADO 1",
+            "Ubicacion": "SALA",
+            "Maleta": "14"
+          }
+        ]
+      },
+      "BB236037000C201": {
+        "BB2360370000100": [
+          {
+            "Operacion": "UNIÓN NEUMÁTICA C.REMOLQUE",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CESTA 2"
+          }
+        ]
+      },
+      "BB23697631200B0": {
+        "BB23697631300A0P": [
+          {
+            "Operacion": "REVESTIMIENTO SUPERIOR COMPLETO",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 4"
+          }
+        ]
+      },
+      "BB23603430C501": {
+        "BB2360071700000": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "CESTA 5"
+          }
+        ]
+      },
+      "BB236581300C201": {
+        "BB2365813010100": [
+          {
+            "Operacion": "MONTAJE AIRE ACONDICIONADO SALA C210",
+            "Ubicacion": "SOBRECUBIERTA",
+            "Maleta": "CESTA 6"
+          }
+        ]
+      }
+    },
+    "C310": {
+      "BB236009700C503": {
+        "BB2360091020000P": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CESTA 1"
+          }
+        ]
+      },
+      "BB236015700C503": {
+        "BB2360071000200": [
+          {
+            "Operacion": "CABLEAR-CONECTAR BAJO BASTIDOR C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "1"
+          }
+        ],
+        "BB23601512002A0": [
+          {
+            "Operacion": "CABLEAR-CONECTAR BAJO BASTIDOR C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "1"
+          },
+          {
+            "Operacion": "CABLEAR-CONECTAR BAJO BASTIDOR C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "1"
+          }
+        ],
+        "BB23615010300A0P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR BAJO BASTIDOR C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236016100C210": {
+        "STD12563026": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 B (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ],
+        "STD1256302600P": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 B (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236815700C201": {
+        "BB2360301000100": [
+          {
+            "Operacion": "INSTALACION TUBERIA NEUMATICA B/B C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "3"
+          }
+        ],
+        "BB2360301000200": [
+          {
+            "Operacion": "INSTALACION TUBERIA NEUMATICA B/B C310",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236006700C500": {
+        "BB23600611200A0": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 1DE3"
+          }
+        ],
+        "BB2367192250000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 1DE3"
+          },
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 1DE3"
+          }
+        ],
+        "BB2367192260000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 2DE3"
+          },
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 2DE3"
+          }
+        ],
+        "BB2367192270000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 2DE3"
+          },
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 2DE3"
+          }
+        ],
+        "BB2367192320000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 3DE3"
+          }
+        ],
+        "BB2369363310000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C310",
+            "Ubicacion": "SALA",
+            "Maleta": "4 - 3DE3"
+          }
+        ]
+      },
+      "BB236134300C201": {
+        "BB23613430400C0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "5+CESTA 2"
+          }
+        ],
+        "BB23613430500B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "5+CESTA 2"
+          }
+        ],
+        "BB23613430600B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "5+CESTA 2"
+          }
+        ]
+      },
+      "BB236556115M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 115",
+            "Ubicacion": "SALA",
+            "Maleta": "5+CESTA 2"
+          }
+        ]
+      },
+      "BB236556116M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 116",
+            "Ubicacion": "SALA",
+            "Maleta": "5+CESTA 2"
+          }
+        ]
+      },
+      "BB236556121M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 121",
+            "Ubicacion": "SALA",
+            "Maleta": "5+CESTA 2"
+          }
+        ]
+      },
+      "BB236699700C501": {
+        "BB2365591010000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 310",
+            "Ubicacion": "SALA",
+            "Maleta": "6 - 1DE3"
+          }
+        ],
+        "BB2365591030000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 310",
+            "Ubicacion": "SALA",
+            "Maleta": "6 - 1DE3"
+          }
+        ],
+        "BB2365591070000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 310",
+            "Ubicacion": "SALA",
+            "Maleta": "6 - 2DE3"
+          }
+        ],
+        "BB2365591130000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 310",
+            "Ubicacion": "SALA",
+            "Maleta": "6 - 2DE3"
+          }
+        ],
+        "BB23655910500B0": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 310",
+            "Ubicacion": "SALA",
+            "Maleta": "6 - 3DE3+CESTA 3"
+          }
+        ],
+        "BB2366997010000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 310",
+            "Ubicacion": "SALA",
+            "Maleta": "6 - 3DE3+CESTA 3"
+          }
+        ]
+      },
+      "BB23600770C501": {
+        "BB2360071000200": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ],
+        "BB2360071000400": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ],
+        "BB2360071000600": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ],
+        "BB2360071000700": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ],
+        "BB2360071030000P": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ],
+        "BB2360071700000": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ],
+        "BB2360077030000P": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 4"
+          }
+        ]
+      },
+      "BB236008700C500": {
+        "BB2360081000100": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "8+CESTA 5"
+          }
+        ],
+        "BB2360087010000P": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "8+CESTA 5"
+          }
+        ]
+      },
+      "BB236325700C501": {
+        "BB23600713001A0": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9+CESTA 6"
+          }
+        ],
+        "BB2360071300200": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9+CESTA 6"
+          }
+        ],
+        "BB2360071320000P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9+CESTA 6"
+          }
+        ],
+        "BB23600714100A0P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9+CESTA 6"
+          }
+        ],
+        "BB2363257130000P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "9+CESTA 6"
+          }
+        ]
+      },
+      "BB23600770C503": {
+        "BB2360071230100": [
+          {
+            "Operacion": "CONECTAR POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          },
+          {
+            "Operacion": "CONECTAR POTENCIA S.CUBIERTA COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236712700C201": {
+        "BB2361451000600": [
+          {
+            "Operacion": "MONTAJE DEPOSITOS AIRE PRINCIPAL C310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ],
+        "BB2361451000700": [
+          {
+            "Operacion": "MONTAJE DEPOSITOS AIRE PRINCIPAL C310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ],
+        "BB2361451000800": [
+          {
+            "Operacion": "MONTAJE DEPOSITOS AIRE PRINCIPAL C310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236789700C201": {
+        "BB2362981000100": [
+          {
+            "Operacion": "MONTAJE COMPRESOR COCHE 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB2360861470000": {
+        "BB2360861970000P": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA",
+            "Ubicacion": "SALA",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236086102C301": {
+        "BB2360861190000P": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ],
+        "BB2360861700000P": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ],
+        "BB23639010009A0": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ]
+      },
+      "BB236451706C301": {
+        "STD10146417": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO LADO 1 SALA 310",
+            "Ubicacion": "SALA",
+            "Maleta": "12"
+          }
+        ]
+      },
+      "BB236964700M201": {
+        "BB2369647100000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 399 C310",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 7"
+          }
+        ],
+        "BB2369647200000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 399 C310",
+            "Ubicacion": "SALA",
+            "Maleta": "CESTA 7"
+          }
+        ]
+      },
+      "BB23600770C502": {
+        "BB2360071500000": [
+          {
+            "Operacion": "PRENSAR TERMINALES POTENCIA FD-A301 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 8"
+          },
+          {
+            "Operacion": "PRENSAR TERMINALES POTENCIA FD-A301 310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 8"
+          }
+        ]
+      },
+      "BB236761700C201": {
+        "BB1933190900000": [
+          {
+            "Operacion": "MONTAJE CAJA FILTRO DE ENTRADA C310",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "0"
+          }
+        ]
+      },
+      "BB236961100M201": {
+        "BB2369611300000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 196-396 C130/120/310",
+            "Ubicacion": "SALA",
+            "Maleta": "13"
+          }
+        ]
+      }
+    },
+    "C120": {
+      "BB236015200C503": {
+        "BB2360071000200": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2361501020000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CESTA 2"
+          }
+        ],
+        "BB2360151001000": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "4+CESTA 3"
+          }
+        ],
+        "BB2360151260000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "4+CESTA 3"
+          }
+        ],
+        "BB2361501001000": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "4+CESTA 3"
+          }
+        ],
+        "BB24827510300A0P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "4+CESTA 3"
+          }
+        ],
+        "BB23601513800A0": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "5"
+          }
+        ],
+        "BB2361501001200": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "5"
+          }
+        ],
+        "BB23601512002A0": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          },
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB23601512701A0": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB2360151280000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB2360151360000P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB23615010300A0P": [
+          {
+            "Operacion": "CABLEAR-CONECTAR CONTROL B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ]
+      },
+      "BB23600720C502": {
+        "BB2360071000200": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360071005000": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360071000700": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360071000400": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360071000600": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          },
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360071030000P": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360072010000P": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360071700000": [
+          {
+            "Operacion": "CABLEADO POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "1+CESTA 1"
+          }
+        ]
+      },
+      "BB236016100C210": {
+        "STD1256302600P": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 B (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ],
+        "STD12563026": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 B (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236016100C211": {
+        "STD1257458900P": [
+          {
+            "Operacion": "M.S B/BAST. C130/120/310 REM D9.5 C (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236016200C203": {
+        "BB2360161040100P": [
+          {
+            "Operacion": "M.S. B/BASTIDOR C120 REM D9.5 A (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ],
+        "STD1257459900P": [
+          {
+            "Operacion": "M.S. B/BASTIDOR C120 REM D9.5 A (NX)",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236006200C500": {
+        "BB2360061001100": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C120",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ],
+        "BB2369363310000": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C120",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ],
+        "BB23600611200A0": [
+          {
+            "Operacion": "CABLEAR CONTROL SALA C120",
+            "Ubicacion": "SALA",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236009100C513": {
+        "BB2360091020000P": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB2360091000300": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB23600910700A0P": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ],
+        "BB2360091060100": [
+          {
+            "Operacion": "CABLEA-CONECTA POTENCIA B.BASTIDOR C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "6+CESTA 4"
+          }
+        ]
+      },
+      "BB236325100C501": {
+        "BB23600713001A0": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB2360071300200": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB2360071400100": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB2360071400200": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB23600713100A2P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB2360071420002P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB23600714100A0P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ],
+        "BB2360071320000P": [
+          {
+            "Operacion": "CANALES ELECTRICAS SOBRE/CUB 120-130",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "7+CESTA 5"
+          }
+        ]
+      },
+      "BB236592200C501": {
+        "BB23645613600A0": [
+          {
+            "Operacion": "CONECTAR PUPITRE C120",
+            "Ubicacion": "SALA",
+            "Maleta": "8"
+          }
+        ],
+        "BB23645613300B0": [
+          {
+            "Operacion": "CONECTAR PUPITRE C120",
+            "Ubicacion": "SALA",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236556115M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 115",
+            "Ubicacion": "SALA",
+            "Maleta": "9+CESTA 6"
+          }
+        ]
+      },
+      "BB236556116M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 116",
+            "Ubicacion": "SALA",
+            "Maleta": "9+CESTA 6"
+          }
+        ]
+      },
+      "BB236556121M301": {
+        "SPT0000065218": [
+          {
+            "Operacion": "ESTRUCTURA ZONA ENTRADA EQUIPADA 121",
+            "Ubicacion": "SALA",
+            "Maleta": "9+CESTA 6"
+          }
+        ]
+      },
+      "BB236134300C201": {
+        "BB23613430500B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "9+CESTA 6"
+          }
+        ],
+        "BB23613430600B0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "9+CESTA 6"
+          }
+        ],
+        "BB23613430400C0": [
+          {
+            "Operacion": "MONTAJE PUERTAS INTERIORES",
+            "Ubicacion": "SALA",
+            "Maleta": "9+CESTA 6"
+          }
+        ]
+      },
+      "BB236298100C201": {
+        "BB2362981000100": [
+          {
+            "Operacion": "MONTAJE COMPRESOR COCHES CABINA",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ],
+        "BB2361451000800": [
+          {
+            "Operacion": "MONTAJE COMPRESOR COCHES CABINA",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236979100C202": {
+        "BB2369791000200P": [
+          {
+            "Operacion": "INSTALACIÓN CAJA DOTACIÓN C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236408200C101": {
+        "BB2360301000100": [
+          {
+            "Operacion": "INSTALACION TUBERIA NEUMATICA B/B C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ],
+        "BB2360301000200": [
+          {
+            "Operacion": "INSTALACION TUBERIA NEUMATICA B/B C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236027100C201": {
+        "BB2360271000100": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ],
+        "BB2360271000200": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ],
+        "BB2360271000300": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ],
+        "BB2360271000400": [
+          {
+            "Operacion": "TUBERIAS REFRIGERACIÓN BATERÍA TRACCIÓN",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236071100C101": {
+        "BB2360711000100": [
+          {
+            "Operacion": "MONT. TUBERÍA REFRIGERACIÓN SC C130/120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "12"
+          }
+        ],
+        "BB2360711000200": [
+          {
+            "Operacion": "MONT. TUBERÍA REFRIGERACIÓN SC C130/120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "12"
+          }
+        ],
+        "BB2360711000300": [
+          {
+            "Operacion": "MONT. TUBERÍA REFRIGERACIÓN SC C130/120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "12"
+          }
+        ],
+        "BB2360711000400": [
+          {
+            "Operacion": "MONT. TUBERÍA REFRIGERACIÓN SC C130/120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "12"
+          }
+        ]
+      },
+      "BB236086101C301": {
+        "STD10146417": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO LADO SALA 120-130",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ]
+      },
+      "BB236322100C201": {
+        "BB2363221000200": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000300": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000400": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000500": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000600": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000700": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000800": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221000900": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2363221001000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2360111090000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "STD10146160": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "STD10146417": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371000200": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371000300": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371010000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371020000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371030000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371040000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371050000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371100000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371110000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ],
+        "BB2364371130000": [
+          {
+            "Operacion": "M. PUERTA+ESTRUCT SALA MAQ +ANTIINCENDIO",
+            "Ubicacion": "SALA",
+            "Maleta": "13+CESTA 7"
+          }
+        ]
+      },
+      "BB236008200C500": {
+        "BB2360081000100": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "14"
+          }
+        ],
+        "BB2360081000300": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "14"
+          }
+        ],
+        "BB2360081000200": [
+          {
+            "Operacion": "CABLEAR CONTROL S CUBIERTA C120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "14"
+          }
+        ]
+      },
+      "BB236117200C202": {
+        "BB2362701000700": [
+          {
+            "Operacion": "MONT.ELEMENTOS SEGURIDAD Y DOTACIÓN B/BA",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15"
+          }
+        ],
+        "BB2362701002700": [
+          {
+            "Operacion": "MONT.ELEMENTOS SEGURIDAD Y DOTACIÓN B/BA",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15"
+          }
+        ],
+        "BB2362701002800": [
+          {
+            "Operacion": "MONT.ELEMENTOS SEGURIDAD Y DOTACIÓN B/BA",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "15"
+          }
+        ]
+      },
+      "BB236040100C201": {
+        "BB2360401010200": [
+          {
+            "Operacion": "MONTAJE AIRE ACONDIC. CABINA C130-120",
+            "Ubicacion": "SALA",
+            "Maleta": "16"
+          }
+        ],
+        "BB2365101000100": [
+          {
+            "Operacion": "MONTAJE AIRE ACONDIC. CABINA C130-120",
+            "Ubicacion": "SALA",
+            "Maleta": "16"
+          }
+        ]
+      },
+      "BB236017100C201": {
+        "BB236017101M201": [
+          {
+            "Operacion": "MONTAJE ANTENAS C130-C120",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CESTA 8"
+          }
+        ]
+      },
+      "BB236051100C202": {
+        "BB2360511010000P": [
+          {
+            "Operacion": "MONTAJE ARENEROS BAJO BASTIDOR",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CESTA 9"
+          }
+        ]
+      },
+      "BB236473100C201": {
+        "STD1221221800P": [
+          {
+            "Operacion": "MONTAJE ASIDEROS Y ESCALERA ACCESO CABIN",
+            "Ubicacion": "SALA",
+            "Maleta": "CAMBIAR A SUELO"
+          }
+        ]
+      },
+      "BB236301100M202": {
+        "BB2363011010000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "17+CESTA 10"
+          }
+        ],
+        "BB2363011020000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "17+CESTA 10"
+          }
+        ],
+        "BB2363011002100": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "17+CESTA 10"
+          }
+        ],
+        "BB2363011002000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES EN PUPITRE",
+            "Ubicacion": "SALA",
+            "Maleta": "17+CESTA 10"
+          }
+        ]
+      },
+      "BB236559200C501": {
+        "BB2365591010000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 120",
+            "Ubicacion": "SALA",
+            "Maleta": "18"
+          }
+        ],
+        "BB2365591030000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 120",
+            "Ubicacion": "SALA",
+            "Maleta": "18"
+          }
+        ],
+        "BB2365591070000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 120",
+            "Ubicacion": "SALA",
+            "Maleta": "18"
+          }
+        ],
+        "BB2365591130000": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 120",
+            "Ubicacion": "SALA",
+            "Maleta": "19+CESTA 11"
+          }
+        ],
+        "BB23655910500B0": [
+          {
+            "Operacion": "MONTAJE PANELES SALA COCHE 120",
+            "Ubicacion": "SALA",
+            "Maleta": "19+CESTA 11"
+          }
+        ]
+      },
+      "BB236206100C201": {
+        "BB2362061010100": [
+          {
+            "Operacion": "MONTAJE PANTÓGRAFO 130 Y 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "20"
+          }
+        ],
+        "SPT0000071198": [
+          {
+            "Operacion": "MONTAJE PANTÓGRAFO 130 Y 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "20"
+          }
+        ]
+      },
+      "BB236954100C202": {
+        "BB2360971050000": [
+          {
+            "Operacion": "MONTAJE RACK NEUMÁTICO CABINA C120",
+            "Ubicacion": "SALA",
+            "Maleta": "21"
+          }
+        ]
+      },
+      "BB236220100C201": {
+        "BB2362201000900P": [
+          {
+            "Operacion": "MONTAJE PISO ACABADO CABINA",
+            "Ubicacion": "SALA",
+            "Maleta": "21"
+          }
+        ],
+        "BB2362201001000P": [
+          {
+            "Operacion": "MONTAJE PISO ACABADO CABINA",
+            "Ubicacion": "SALA",
+            "Maleta": "21"
+          }
+        ]
+      },
+      "BB236086102C301": {
+        "BB2360861100000": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "22"
+          }
+        ],
+        "BB2360861190000P": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "22"
+          }
+        ],
+        "BB2360861700000P": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "22"
+          }
+        ],
+        "BB23639010009A0": [
+          {
+            "Operacion": "MONTAJE REV. TESTERO FUELLE C120-130-310",
+            "Ubicacion": "SALA",
+            "Maleta": "22"
+          }
+        ]
+      },
+      "BB23600720C504": {
+        "BB2360071500000": [
+          {
+            "Operacion": "PRENSAR TERMINALES POTENCIA FD-A101 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 12"
+          }
+        ]
+      },
+      "BB23600720C503": {
+        "BB2360071230100": [
+          {
+            "Operacion": "CONECTAR POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 13"
+          },
+          {
+            "Operacion": "CONECTAR POTENCIA S.CUBIERTA COCHE 120",
+            "Ubicacion": "SOBRE CUBIERTA",
+            "Maleta": "CESTA 13"
+          }
+        ]
+      },
+      "BB236290200C201": {
+        "BB2362902010000P": [
+          {
+            "Operacion": "MONTAJE BATERIAS DE TRACCION CABINA",
+            "Ubicacion": "BAJO BASTIDOR",
+            "Maleta": "CAMBIAR A SUELO"
+          }
+        ]
+      },
+      "BB236963100M201": {
+        "BB2369631010000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 191 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "23"
+          }
+        ],
+        "BB2369631020000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 191 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "23"
+          }
+        ]
+      },
+      "BB236964100M201": {
+        "BB2369641020000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 192 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "23"
+          }
+        ],
+        "BB2369641030000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 192 C130/120",
+            "Ubicacion": "SALA",
+            "Maleta": "23"
+          }
+        ]
+      },
+      "BB236961100M201": {
+        "BB2369611300000P": [
+          {
+            "Operacion": "INSTALACIÓN ARMARIO 196-396 C130/120/310",
+            "Ubicacion": "SALA",
+            "Maleta": "23"
+          }
+        ]
+      },
+      "BB2360861470000": {
+        "BB2360861970000P": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA",
+            "Ubicacion": "SALA",
+            "Maleta": "23"
+          }
+        ]
+      }
+    }
+  },
+  "ES05": {
+    "C130": {
+      "BB236021100C301": {
+        "BB1842341060000": [
+          {
+            "Operacion": "MONTAJE ZONA PMR",
+            "Ubicacion": "ES05",
+            "Maleta": "1 - 1DE2"
+          }
+        ],
+        "BB2360211000800P": [
+          {
+            "Operacion": "MONTAJE ZONA PMR",
+            "Ubicacion": "ES05",
+            "Maleta": "1 - 1DE2"
+          }
+        ],
+        "BB23602110100A0P": [
+          {
+            "Operacion": "MONTAJE ZONA PMR",
+            "Ubicacion": "ES05",
+            "Maleta": "1 - 1DE2"
+          }
+        ],
+        "BB2360211130000P": [
+          {
+            "Operacion": "MONTAJE ZONA PMR",
+            "Ubicacion": "ES05",
+            "Maleta": "1 - 2DE2"
+          }
+        ],
+        "BB2483823000300": [
+          {
+            "Operacion": "MONTAJE ZONA PMR",
+            "Ubicacion": "ES05",
+            "Maleta": "1 - 2DE2"
+          }
+        ],
+        "BB2483823000400": [
+          {
+            "Operacion": "MONTAJE ZONA PMR",
+            "Ubicacion": "ES05",
+            "Maleta": "1 - 2DE2"
+          }
+        ]
+      },
+      "BB236052100C301": {
+        "BB2360521000500": [
+          {
+            "Operacion": "SISTEMA INFORMACIÓN AL PASAJERO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2360521000600": [
+          {
+            "Operacion": "SISTEMA INFORMACIÓN AL PASAJERO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2360521180000": [
+          {
+            "Operacion": "SISTEMA INFORMACIÓN AL PASAJERO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236548100C202": {
+        "BB1296461000100": [
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3-1DE2"
+          },
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3-1DE2"
+          }
+        ]
+      },
+      "BB236548100C233": {
+        "BB2361733230000": [
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          },
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556100C303": {
+        "BB2365561001600P": [
+          {
+            "Operacion": "MONTAJE REVEST. PUERTAS ACCESO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ],
+        "BB2365561001800P": [
+          {
+            "Operacion": "MONTAJE REVEST. PUERTAS ACCESO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236217150M301": {
+        "BB2362171000700P": [
+          {
+            "Operacion": "PREMONTAJE TRAMPILLA ZONA WC",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ],
+        "BB2362171000900P": [
+          {
+            "Operacion": "PREMONTAJE TRAMPILLA ZONA WC",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556102M301": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556103M303": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556174M301": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556175M301": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556101M301": {
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236556104M304": {
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "3-2DE2"
+          }
+        ]
+      },
+      "BB236217182C301": {
+        "BB2363771001400": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO IZQ. C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001500": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO IZQ. C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001600": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO IZQ. C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001700": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO IZQ. C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236377182C301": {
+        "BB2363771001400": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES L.DERECHO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001500": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES L.DERECHO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001600": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES L.DERECHO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001700": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES L.DERECHO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236203100C201": {
+        "BB2362031050000": [
+          {
+            "Operacion": "MONTAJE ENCIMERAS 120-130",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ],
+        "STD1232815100P": [
+          {
+            "Operacion": "MONTAJE ENCIMERAS 120-130",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236036100C301": {
+        "BB2360361001200": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360361140000": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360361150000": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360361340000P": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ],
+        "BB2360361350000P": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB2360521210000": {
+        "BB2364601410200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB236167100C201": {
+        "BB2361671010000": [
+          {
+            "Operacion": "RECIRCULACIÓN CLIMATIZACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB23616710100A0": [
+          {
+            "Operacion": "RECIRCULACIÓN CLIMATIZACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ]
+      },
+      "BB236217185C301": {
+        "BB2362171001500P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS ZONA WC C130",
+            "Ubicacion": "ES05",
+            "Maleta": "8 + CESTA 2"
+          }
+        ],
+        "BB2362171250000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS ZONA WC C130",
+            "Ubicacion": "ES05",
+            "Maleta": "8 + CESTA 2"
+          }
+        ],
+        "BB2362171260000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS ZONA WC C130",
+            "Ubicacion": "ES05",
+            "Maleta": "8 + CESTA 2"
+          }
+        ],
+        "BB2362171710000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS ZONA WC C130",
+            "Ubicacion": "ES05",
+            "Maleta": "8 + CESTA 2"
+          }
+        ]
+      },
+      "BB236227100C201": {
+        "BB2362271000400": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ],
+        "BB2362271000500P": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ],
+        "BB2362271000600P": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ],
+        "BB2362271000800": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ]
+      },
+      "BB236449100C302": {
+        "BB2361182003000": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2361182004000": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2361182355200": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236475100C301": {
+        "BB2362591020000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ],
+        "BB2364751117000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ],
+        "BB2364751300000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ],
+        "BB2364751400000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236533100C201": {
+        "BB23621712300A0P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C130",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ],
+        "BB2363771770000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C130",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ],
+        "BB23637717800A0P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C130",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ],
+        "BB2363771790000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C130",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ],
+        "BB2364601600000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C130",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ],
+        "BB2364601700000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C130",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ]
+      },
+      "BB236556112M301": {
+        "BB2365561580000P": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "13 - 1DE2"
+          }
+        ],
+        "BB23655619102A0": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "13 - 1DE2"
+          }
+        ],
+        "BB2365561910100": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "13 - 2DE2"
+          }
+        ]
+      },
+      "BB236217183C301": {
+        "BB2363771001800": [
+          {
+            "Operacion": "MONT. REVESTIMIENTOS ASIENTOS IZQ C130",
+            "Ubicacion": "ES05",
+            "Maleta": "14"
+          }
+        ]
+      },
+      "BB236377183C301": {
+        "BB2363771001800": [
+          {
+            "Operacion": "MONT. REVESTIMIENTOS ASIENTOS DCH C130",
+            "Ubicacion": "ES05",
+            "Maleta": "14"
+          }
+        ]
+      },
+      "BB236436100C302": {
+        "BB2361302100000": [
+          {
+            "Operacion": "MAMPARAS VESTIBULO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "15"
+          }
+        ],
+        "BB2361302110000": [
+          {
+            "Operacion": "MAMPARAS VESTIBULO C130",
+            "Ubicacion": "ES05",
+            "Maleta": "15"
+          }
+        ]
+      },
+      "BB236270100C201": {
+        "BB2362701001000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ],
+        "BB2362701140000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ],
+        "BB2362701250000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ],
+        "BB2362701260000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ],
+        "BB2362701400000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ],
+        "BB2362701420000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ]
+      },
+      "BB236295100C301": {
+        "BB2362951000400": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB23629510100B0": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB23629510200B0": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB2362951180000": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB2362951190000": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "STD12101910": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ]
+      },
+      "BB236300100C201": {
+        "BB02664500001B0": [
+          {
+            "Operacion": "MONTAJE CARENADOS INFERIORES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 5"
+          }
+        ]
+      },
+      "BB236301100C203": {
+        "BB2363011030000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011040000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011050000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011200000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011280000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ]
+      },
+      "BB236338100C201": {
+        "BB2363381210000P": [
+          {
+            "Operacion": "MONTAJE ESTRUCTURA ASIENTO ACOMPAÑANTE",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 7"
+          }
+        ]
+      },
+      "BB236559100C502": {
+        "BB2365591190000": [
+          {
+            "Operacion": "MONTAJE PANELES BAJO ASIENTOS 130",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 8"
+          }
+        ],
+        "BB2365591210000": [
+          {
+            "Operacion": "MONTAJE PANELES BAJO ASIENTOS 130",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 8"
+          }
+        ]
+      },
+      "BB236324100C201": {
+        "BB2363241001200": [
+          {
+            "Operacion": "MONTAJE PUERTAS ACCESO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 9"
+          }
+        ]
+      }
+    },
+    "C210": {
+      "BB236235300C302": {
+        "BB2362353001000": [
+          {
+            "Operacion": "MONT TECHO CENTRAL Y ALUMBRADO VEST.C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          }
+        ]
+      },
+      "BB236078300C301": {
+        "BB2361283000300": [
+          {
+            "Operacion": "MONT. TECHO CENTRAL Y ALUMBRADO PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2361283110000P": [
+          {
+            "Operacion": "MONT. TECHO CENTRAL Y ALUMBRADO PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          }
+        ]
+      },
+      "BB236273300C202": {
+        "BB2360323000100": [
+          {
+            "Operacion": "MONTAJE TECHOS LATERALES PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          },
+          {
+            "Operacion": "MONTAJE TECHOS LATERALES PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2360323210000": [
+          {
+            "Operacion": "MONTAJE TECHOS LATERALES PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          },
+          {
+            "Operacion": "MONTAJE TECHOS LATERALES PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          }
+        ]
+      },
+      "BB2366043030000": {
+        "BB2366043030700P": [
+          {
+            "Operacion": "CONJUNTO REVESTIMIENTO ADHESIVADO",
+            "Ubicacion": "ES05",
+            "Maleta": "1+CESTA 1"
+          }
+        ],
+        "BB2366043030500": [
+          {
+            "Operacion": "CONJUNTO REVESTIMIENTO ADHESIVADO",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ],
+        "BB2366043030600P": [
+          {
+            "Operacion": "CONJUNTO REVESTIMIENTO ADHESIVADO",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236124382C301": {
+        "BB2361243820100": [
+          {
+            "Operacion": "MONT. REVEST. CALEFACTORES PLANTA ALTA",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2361243820200": [
+          {
+            "Operacion": "MONT. REVEST. CALEFACTORES PLANTA ALTA",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2361243820500": [
+          {
+            "Operacion": "MONT. REVEST. CALEFACTORES PLANTA ALTA",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236675382C301": {
+        "BB2366753820200": [
+          {
+            "Operacion": "MONT. REVEST. CALEFACTORES PLANTA BAJA",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236675383C301": {
+        "BB2366753820100": [
+          {
+            "Operacion": "MONT. REVEST. ASIENTOS PL. BAJA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236173300C202": {
+        "BB1296461000100": [
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C210",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          },
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C210",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236173300C233": {
+        "BB2361733230000": [
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C210",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          },
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C210",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236552309M301": {
+        "BB2365561580000P": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA SUP. ESCALERAS 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ],
+        "BB2365561910100": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA SUP. ESCALERAS 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ],
+        "BB2365561910200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA SUP. ESCALERAS 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236249300C201": {
+        "BB2362271000800": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓ",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2362701140000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓ",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236344300C301": {
+        "BB2363443000400P": [
+          {
+            "Operacion": "MONTAJE MAMPARAS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "5-1DE2"
+          },
+          {
+            "Operacion": "MONTAJE MAMPARAS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "5-2DE2"
+          }
+        ]
+      },
+      "BB236870300C301": {
+        "BB2368703010400": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO ESCALERAS C 210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2368703500100": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO ESCALERAS C 210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ]
+      },
+      "BB236604300C202": {
+        "BB2366043001400": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2366043001500": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2366043001600": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2366043080000": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ]
+      },
+      "BB236604300C201": {
+        "BB2366043140000": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2366043150000P": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2366043160000P": [
+          {
+            "Operacion": "MONT. REVESTIMIENTO TECHO ESC. PB C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ]
+      },
+      "BB236375300C202": {
+        "BB2368793000300": [
+          {
+            "Operacion": "MONTAJE TECHOS LATERALES PA C210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ]
+      },
+      "BB236992300C301": {
+        "BB2369923110000": [
+          {
+            "Operacion": "MONTAJE ASIDEROS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ],
+        "BB2369923120000": [
+          {
+            "Operacion": "MONTAJE ASIDEROS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "6+CESTA 2"
+          }
+        ]
+      },
+      "BB236471300C301": {
+        "BB2364713490000": [
+          {
+            "Operacion": "REVESTIMIENTO PAREDES ZONA ESCALERAS",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA3"
+          }
+        ],
+        "BB2364713550000": [
+          {
+            "Operacion": "REVESTIMIENTO PAREDES ZONA ESCALERAS",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA3"
+          }
+        ],
+        "BB2364713570000": [
+          {
+            "Operacion": "REVESTIMIENTO PAREDES ZONA ESCALERAS",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA3"
+          }
+        ]
+      },
+      "BB236552301M301": {
+        "BB2365523780000P": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR EQUIP 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ],
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR EQUIP 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB236552302M301": {
+        "BB2365523730000P": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR EQUIP 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ],
+        "BB2365561930200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR EQUIP 9002",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB23697632000A0": {
+        "BB2369763200100P": [
+          {
+            "Operacion": "TRAMPILLA TFT",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236480382C301": {
+        "BB2363771001600": [
+          {
+            "Operacion": "MONT. REVEST. LATERALES VESTIBULO C210",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          },
+          {
+            "Operacion": "MONT. REVEST. LATERALES VESTIBULO C210",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ]
+      },
+      "BB236777300C301": {
+        "BB2360521000500": [
+          {
+            "Operacion": "SIST INFO PASAJEROS ZONA ESCALERAS C210",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2367773000100P": [
+          {
+            "Operacion": "SIST INFO PASAJEROS ZONA ESCALERAS C210",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2367773040000P": [
+          {
+            "Operacion": "SIST INFO PASAJEROS ZONA ESCALERAS C210",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ]
+      },
+      "BB236992300C302": {
+        "BB2369923160000P": [
+          {
+            "Operacion": "MONTAJE SOPORTES ASIDEROS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB23699231600A0P": [
+          {
+            "Operacion": "MONTAJE SOPORTES ASIDEROS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB2369923170000P": [
+          {
+            "Operacion": "MONTAJE SOPORTES ASIDEROS COCHE 210",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ]
+      }
+    },
+    "C310": {
+      "BB236098700C301": {
+        "BB2365561001600P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS PUERTAS ACCESO C3",
+            "Ubicacion": "ES05",
+            "Maleta": "1"
+          }
+        ],
+        "BB2365561001800P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS PUERTAS ACCESO C3",
+            "Ubicacion": "ES05",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236130200C301": {
+        "BB2361302100000": [
+          {
+            "Operacion": "MONTAJE MAMPARAS VESTIBULO C120/310",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2361302110000": [
+          {
+            "Operacion": "MONTAJE MAMPARAS VESTIBULO C120/310",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2364812000200": [
+          {
+            "Operacion": "MONTAJE MAMPARAS VESTIBULO C120/310",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236548100C202": {
+        "BB1296461000100": [
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          },
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236548100C233": {
+        "BB2361733230000": [
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          },
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236556112M301": {
+        "BB2365561580000P": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ],
+        "BB2365561910100": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ],
+        "BB23655619102A0": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236667782C301": {
+        "BB2363771001500": [
+          {
+            "Operacion": "MONTAJE REVEST. CALEFACTORES C 310",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2363771001600": [
+          {
+            "Operacion": "MONTAJE REVEST. CALEFACTORES C 310",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236036100C301": {
+        "BB2360361001200": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ],
+        "BB2360361140000": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ],
+        "BB2360361150000": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236556101M301": {
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236556102M301": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236556103M303": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236556104M304": {
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236667783C301": {
+        "BB2363771001800": [
+          {
+            "Operacion": "MONT. REVESTIMIENTOS ASIENTOS C310",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB236835700C201": {
+        "BB2363771640000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C310",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ],
+        "BB2363771770000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C310",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ],
+        "BB2363771790000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C310",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB236765700C302": {
+        "BB2361182003000": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C310",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ],
+        "BB2361182004000": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C310",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ],
+        "BB2361182355200": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C310",
+            "Ubicacion": "ES05",
+            "Maleta": "11"
+          }
+        ]
+      },
+      "BB236813700C301": {
+        "BB2360521000500": [
+          {
+            "Operacion": "SISTEMA INFORMACIÓN AL PASAJERO C 310",
+            "Ubicacion": "ES05",
+            "Maleta": "12"
+          }
+        ]
+      },
+      "BB236699700C502": {
+        "BB2366997050000": [
+          {
+            "Operacion": "MONTAJE PANELES BAJO ASIENTOS 310",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ]
+      },
+      "BB236810700C201": {
+        "BB2362701140000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 2"
+          }
+        ],
+        "BB2362701250000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 2"
+          }
+        ],
+        "BB2362701260000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 2"
+          }
+        ]
+      }
+    },
+    "C120": {
+      "BB236056282C301": {
+        "BB2363771001500": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO DCHO 120",
+            "Ubicacion": "ES05",
+            "Maleta": "1"
+          }
+        ],
+        "BB2363771001600": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO DCHO 120",
+            "Ubicacion": "ES05",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236807282C301": {
+        "BB2363771001500": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO IZQ. C120",
+            "Ubicacion": "ES05",
+            "Maleta": "1"
+          }
+        ],
+        "BB2363771001600": [
+          {
+            "Operacion": "MONTAJE REV. CALEFACTORES LADO IZQ. C120",
+            "Ubicacion": "ES05",
+            "Maleta": "1"
+          }
+        ]
+      },
+      "BB236056283C301": {
+        "BB2363771001800": [
+          {
+            "Operacion": "MONT. REVESTIMIENTOS ASIENTOS DCH C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236997200C201": {
+        "BB23621712300A0P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          },
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2363771001800": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2363771790000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          },
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2364601600000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ],
+        "BB2364601700000P": [
+          {
+            "Operacion": "MONTAJE ASIENTOS C120",
+            "Ubicacion": "ES05",
+            "Maleta": "2"
+          }
+        ]
+      },
+      "BB236117200C201": {
+        "BB2362701140000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2362701250000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2362701260000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2362701400000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ],
+        "BB2362701420000P": [
+          {
+            "Operacion": "MONT. ELEMENTOS DE SEGURIDAD Y DOTACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 1"
+          }
+        ]
+      },
+      "BB236118200C302": {
+        "BB2361182003000": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ],
+        "BB2361182004000": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ],
+        "BB2361182355200": [
+          {
+            "Operacion": "MONTAJE TECHO CENTRAL Y ALUMBRADO C120",
+            "Ubicacion": "ES05",
+            "Maleta": "3"
+          }
+        ]
+      },
+      "BB236130200C301": {
+        "BB2361302100000": [
+          {
+            "Operacion": "MONTAJE MAMPARAS VESTIBULO C120/310",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2361302110000": [
+          {
+            "Operacion": "MONTAJE MAMPARAS VESTIBULO C120/310",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ],
+        "BB2364812000200": [
+          {
+            "Operacion": "MONTAJE MAMPARAS VESTIBULO C120/310",
+            "Ubicacion": "ES05",
+            "Maleta": "4"
+          }
+        ]
+      },
+      "BB236167100C201": {
+        "BB2361671010000": [
+          {
+            "Operacion": "RECIRCULACIÓN CLIMATIZACIÓN",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 2"
+          }
+        ]
+      },
+      "BB236203100C201": {
+        "BB2362031050000": [
+          {
+            "Operacion": "MONTAJE ENCIMERAS 120-130",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ],
+        "STD1232815100P": [
+          {
+            "Operacion": "MONTAJE ENCIMERAS 120-130",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 3"
+          }
+        ]
+      },
+      "BB236227100C201": {
+        "BB2362271000400": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ],
+        "BB2362271000500P": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ],
+        "BB2362271000600P": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ],
+        "BB2362271000800": [
+          {
+            "Operacion": "MONTAJE SOPORTES DOTACIÓN CABINA ES05",
+            "Ubicacion": "ES05",
+            "Maleta": "5"
+          }
+        ]
+      },
+      "BB236233200C301": {
+        "BB2365561001600P": [
+          {
+            "Operacion": "MONTAJE REVEST. PUERTAS ACCESO C120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ],
+        "BB2365561001800P": [
+          {
+            "Operacion": "MONTAJE REVEST. PUERTAS ACCESO C120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236548100C233": {
+        "BB2361733230000": [
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          },
+          {
+            "Operacion": "SIRGAS SALIDA SERIE ES05 C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236548100C202": {
+        "BB1296461000100": [
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          },
+          {
+            "Operacion": "MONTAJE DESBLOQUEO INTERIOR C130/310/120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236608200C301": {
+        "BB2360521000500": [
+          {
+            "Operacion": "SIST INFORMACIÓN AL PASAJERO C120",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236556101M301": {
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236556102M301": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236556104M304": {
+        "BB23655619302A0": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ],
+        "BB2365561950200": [
+          {
+            "Operacion": "CONJUNTO TRAMPILLA INFERIOR RAL 9002 ST",
+            "Ubicacion": "ES05",
+            "Maleta": "6"
+          }
+        ]
+      },
+      "BB236295100C301": {
+        "BB2362951000400": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB23629510100B0": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB23629510200B0": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB2362951180000": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB2362951190000": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "BB2362291000300": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ],
+        "STD12101910": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTO TECHO CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 4"
+          }
+        ]
+      },
+      "BB236300100C201": {
+        "BB02664500001B0": [
+          {
+            "Operacion": "MONTAJE CARENADOS INFERIORES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 5"
+          }
+        ]
+      },
+      "BB236301100C203": {
+        "BB2363011030000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011040000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011050000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011060000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011200000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ],
+        "BB2363011280000": [
+          {
+            "Operacion": "MONTAJE CALEFACTORES SOBRE ESTRUCTURA",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 6"
+          }
+        ]
+      },
+      "BB236338100C201": {
+        "BB2363381210000P": [
+          {
+            "Operacion": "MONTAJE ESTRUCTURA ASIENTO ACOMPAÑANTE",
+            "Ubicacion": "ES05",
+            "Maleta": "7"
+          }
+        ]
+      },
+      "BB236475100C301": {
+        "BB2362591020000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ],
+        "BB2364751117000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ],
+        "BB2364751300000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ],
+        "BB2364751400000P": [
+          {
+            "Operacion": "MONTAJE REVESTIMIENTOS LATERALES CABINA",
+            "Ubicacion": "ES05",
+            "Maleta": "8"
+          }
+        ]
+      },
+      "BB236556112M301": {
+        "BB2365561580000P": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ],
+        "BB2365561910100": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ],
+        "BB23655619102A0": [
+          {
+            "Operacion": "CONJ TRAMPILLA SUPERIOR + TIRADOR ALARMA",
+            "Ubicacion": "ES05",
+            "Maleta": "9"
+          }
+        ]
+      },
+      "BB236559200C502": {
+        "BB2365591190000": [
+          {
+            "Operacion": "MONTAJE PANELES BAJO ASIENTOS 120",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 7"
+          }
+        ],
+        "BB2365591210000": [
+          {
+            "Operacion": "MONTAJE PANELES BAJO ASIENTOS 120",
+            "Ubicacion": "ES05",
+            "Maleta": "CESTA 7"
+          }
+        ]
+      },
+      "BB236036100C301": {
+        "BB2360361001200": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2360361140000": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2360361150000": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2360361340000P": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ],
+        "BB2360361350000P": [
+          {
+            "Operacion": "MAMPARAS INTERMEDIAS C120-C130-C310",
+            "Ubicacion": "ES05",
+            "Maleta": "10"
+          }
+        ]
+      }
+    }
+  }
+}
+
+
+
+// ====== LÓGICA (igual que GRANDES) ======
+
+const $ = id => document.getElementById(id);
+
+function cocheFromSerie(serieStr){
+  const s = Number(String(serieStr).trim());
+  if (!Number.isFinite(s)) return "";
+  if ((s>=61501000 && s<61502000) || (s>=61551000 && s<61552000)) return "C130";
+  if ((s>=61502000 && s<61503000) || (s>=61552000 && s<61553000)) return "C210";
+  if ((s>=61503000 && s<61504000) || (s>=61553000 && s<61554000)) return "C310";
+  if ((s>=61504000 && s<61505000) || (s>=61554000 && s<=61555000)) return "C120";
+  return "";
+}
+
+function showErr(t){ $("err").textContent = t || ""; }
+function vib(ok){ try{ if(navigator.vibrate) navigator.vibrate(ok?60:[40,60,40]); }catch(e){} }
+
+function normalizeZona(v){
+  const s = String(v||"").toLowerCase().replace(/\s+/g," ").trim();
+  if (s.includes("sobre")) return "SOBRECUBIERTA";
+  if (s.includes("bajo")) return "BAJOBASTIDOR";
+  if (s.includes("sala")) return "SALA";
+  return String(v||"").toUpperCase().replace(/\s+/g,"");
+}
+
+function setHeader(){
+  $("hdr").textContent = `Estación: ${currentStation||"—"} | Serie: ${currentSerie||"—"} | Modelo: ${currentModel||"—"}`;
+}
+
+function setResult(zonaText, maletaText, statusText){
+  $("zona").textContent = zonaText || "—";
+  $("maleta").textContent = maletaText ? `MALETA(S): ${maletaText}` : "";
+  $("status").textContent = statusText || "";
+}
+
+// ---- Estado ----
+let currentSerie  = localStorage.getItem("serie_med") || "";
+let currentModel  = localStorage.getItem("model_med") || "";
+let currentStation = (localStorage.getItem("med_station") || "ES0304").toUpperCase();
+let autoNext = (localStorage.getItem("autoNext_med") ?? "1") === "1";
+
+let pendingEntries = null; // [{Operacion,Ubicacion,Maleta}, ...]
+let pendingCode = "";
+
+// ---- Switch estación ----
+const stationSwitch = document.getElementById("stationSwitch");
+function setStation(st){
+  currentStation = (st || "ES0304").toUpperCase();
+  localStorage.setItem("med_station", currentStation);
+  const on = currentStation === "ES05";
+  if (stationSwitch) stationSwitch.dataset.on = String(on);
+  setHeader();
+}
+if (stationSwitch){
+  stationSwitch.addEventListener("click", ()=>{
+    setStation(currentStation === "ES05" ? "ES0304" : "ES05");
+  });
+  stationSwitch.dataset.on = String(currentStation === "ES05");
+}
+
+// ---- UI init ----
+$("serie").value = currentSerie;
+$("autoscan").textContent = "Auto-siguiente: " + (autoNext ? "ON" : "OFF");
+
+$("autoscan").onclick = () => {
+  autoNext = !autoNext;
+  localStorage.setItem("autoNext_med", autoNext ? "1" : "0");
+  $("autoscan").textContent = "Auto-siguiente: " + (autoNext ? "ON" : "OFF");
+};
+
+function hideOpSelector(){
+  $("opWrap").style.display = "none";
+  $("ops").innerHTML = "";
+  pendingEntries = null;
+  pendingCode = "";
+}
+
+function ensureReady(){
+  if (!currentModel){
+    showErr("Primero introduce nº serie y pulsa Empezar.");
+    return false;
+  }
+  return true;
+}
+
+// ---- BÚSQUEDA QR en JSON (SIN INPUT DE COMPONENTE) ----
+function findEntriesForQR(station, model, qr){
+  const stNode = DATA?.[station];
+  const mNode = stNode?.[model];
+  if (!mNode) return null;
+
+  // Caso A: mNode[QR] -> entries (dataset ya plano)
+  const direct = mNode?.[qr];
+  if (Array.isArray(direct)) return direct;
+
+  // Caso B: mNode[COMPONENTE][QR] -> entries (dataset anidado)
+  const acc = [];
+  for (const compKey of Object.keys(mNode)){
+    const compNode = mNode[compKey];
+    if (compNode && typeof compNode === 'object'){
+      const hit = compNode[qr];
+      if (Array.isArray(hit)) acc.push(...hit);
+    }
+  }
+  return acc.length ? acc : null;
+}
+
+function showOpSelector(entries, code){
+  pendingEntries = entries;
+  pendingCode = code;
+  $("opWrap").style.display = "block";
+  const ops = $("ops");
+  ops.innerHTML = "";
+
+  entries.forEach((e, idx) => {
+    const b = document.createElement("button");
+    b.className = "opBtn";
+    const label = String(e.Operacion || `Operación ${idx+1}`).trim();
+    b.textContent = label.length > 70 ? (label.slice(0,70) + "…") : label;
+    b.onclick = () => selectOperation(idx);
+    ops.appendChild(b);
+  });
+
+  setResult("ELIGE OPERACIÓN", "", `Coincidencias: ${entries.length}`);
+}
+
+function selectOperation(idx){
+  const e = pendingEntries?.[idx];
+  if (!e) return;
+  hideOpSelector();
+  const zona = normalizeZona(e.Ubicacion);
+  const maleta = String(e.Maleta || "").trim();
+  setResult(zona, maleta, "ENCONTRADO");
+  vib(true);
+  if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
+}
+
+// ---- Botones ----
+$("start").onclick = () => {
+  const serie = $("serie").value.trim();
+  if (!serie) return showErr("Introduce nº serie.");
+
+  const model = cocheFromSerie(serie);
+  if (!model) return showErr("Serie fuera de rango.");
+
+  currentSerie = serie;
+  currentModel = model;
+  localStorage.setItem("serie_med", currentSerie);
+  localStorage.setItem("model_med", currentModel);
+
+  showErr("");
+  hideOpSelector();
+  setHeader();
+  setResult("—", "", "OK: listo");
+  setTimeout(()=> $("file").click(), 150);
+};
+
+$("reset").onclick = () => {
+  currentSerie = "";
+  currentModel = "";
+  localStorage.removeItem("serie_med");
+  localStorage.removeItem("model_med");
+  $("serie").value = "";
+  showErr("");
+  hideOpSelector();
+  setHeader();
+  setResult("—", "", "Listo");
+};
+
+$("scan").onclick = () => {
+  if (!ensureReady()) return;
+  showErr("");
+  hideOpSelector();
+  $("file").click();
+};
+
+/* ===== QR decoding (BarcodeDetector -> jsQR fallback) ===== */
+async function QR_decodeWithBarcodeDetector(file){
+  if (!("BarcodeDetector" in window)) return "";
+  try{
+    const det = new BarcodeDetector({ formats: ["qr_code"] });
+    // createImageBitmap no siempre funciona en MIUI; si peta, devolvemos "" para forzar jsQR
+    const bmp = await createImageBitmap(file);
+    const codes = await det.detect(bmp);
+    return (codes?.[0]?.rawValue || "").trim().toUpperCase();
+  }catch(_){
+    return "";
+  }
+}
+
+function QR_fileToImageData(file, maxSide = 1280){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      try{
+        const w0 = img.naturalWidth || img.width;
+        const h0 = img.naturalHeight || img.height;
+        const scale = Math.min(1, maxSide / Math.max(w0, h0));
+        const w = Math.max(1, Math.round(w0 * scale));
+        const h = Math.max(1, Math.round(h0 * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve(imageData);
+      }catch(e){
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+    img.onerror = (e)=>{ URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+}
+
+async function QR_decodeWithJsQR(file){
+  if (typeof jsQR !== "function") return "";
+  try{
+    const imageData = await QR_fileToImageData(file);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+    return (code?.data || "").trim().toUpperCase();
+  }catch(_){
+    return "";
+  }
+}
+
+async function QR_decodeSmart(file){
+  let raw = await QR_decodeWithBarcodeDetector(file);
+  if (raw) return raw;
+  raw = await QR_decodeWithJsQR(file);
+  return raw || "";
+}
+
+// ---- Escaneo ----
+$("file").addEventListener("change", async (e)=>{
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  showErr("");
+  hideOpSelector();
+  setResult("—", "", "Leyendo QR...");
+
+  try{
+    if (!ensureReady()) throw new Error("No listo: falta serie/modelo.");
+
+    const code = (await QR_decodeSmart(file)).trim().toUpperCase();
+    if (!code) throw new Error("No se detecta QR (más luz, acércate y enfoca).");
+
+    const entries = findEntriesForQR(currentStation, currentModel, code);
+
+    if (!entries){
+      setResult("NO ENCONTRADO", "", "Sin coincidencia");
+      vib(false);
+      if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
+      return;
+    }
+
+    if (entries.length === 1){
+      pendingEntries = entries;
+      selectOperation(0);
+      return;
+    }
+
+    vib(true);
+    showOpSelector(entries, code);
+
+  }catch(err){
+    setResult("ERROR", "", "Fallo lectura");
+    showErr(String(err.message||err));
+    vib(false);
+  }finally{
+    e.target.value = "";
+  }
+});
+
+// ---- Init ----
+setStation(currentStation);
+setHeader();
+setResult("—", "", currentModel ? "OK: listo" : "Listo");
+
+</script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./service-worker.js");
+    }
+  </script>
+</body>
+</html>
