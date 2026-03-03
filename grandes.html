@@ -62,6 +62,7 @@
     <div class="center">
       <div id="loc" class="locBig">—</div>
       <div id="blk" class="blkMed"></div>
+      <div id="day" class="status"></div>
       <div id="status" class="status">Listo</div>
     </div>
 
@@ -112,9 +113,16 @@ function setHeader(){
   $("hdr").innerHTML = `Serie: ${currentSerie||"—"} | Modelo: ${currentModel||"—"} <span id="dataTag" class="pill">multi-op</span>`;
 }
 function showErr(t){ $("err").textContent = t || ""; }
-function setResult(locText, bloqueText, statusText){
+function getDiaSec(entry){
+  const raw = entry?.DiaSec ?? entry?.DiaSecuencia ?? entry?.Dia_Seq ?? entry?.["Día Sec."] ?? entry?.["Dia Sec."] ?? "";
+  const day = String(raw ?? "").trim();
+  return day && day !== "0" ? day : "";
+}
+
+function setResult(locText, bloqueText, diaSecText, statusText){
   $("loc").textContent = locText || "—";
   $("blk").textContent = bloqueText ? `BLOQUE: ${bloqueText}` : "";
+  $("day").textContent = diaSecText ? `DÍA SEC.: ${diaSecText}` : "";
   $("status").textContent = statusText || "";
 }
 function vib(ok){
@@ -154,11 +162,13 @@ function showOpSelector(entries, code){
     const b = document.createElement("button");
     b.className = "opBtn";
     const label = (e.Operacion || e.InstruccionPrep || `Operación ${idx+1}`).trim();
-    b.textContent = label.length > 70 ? (label.slice(0,70) + "…") : label;
+    const dayLabel = getDiaSec(e);
+    const fullLabel = dayLabel ? `${label} · Día ${dayLabel}` : label;
+    b.textContent = fullLabel.length > 80 ? (fullLabel.slice(0,80) + "…") : fullLabel;
     b.onclick = () => selectOperation(idx);
     ops.appendChild(b);
   });
-  setResult("ELIGE OPERACIÓN","", `Coincidencias: ${entries.length}`);
+  setResult("ELIGE OPERACIÓN","", "", `Coincidencias: ${entries.length}`);
 }
 
 function hideOpSelector(){
@@ -174,7 +184,8 @@ function selectOperation(idx){
   hideOpSelector();
   const loc = normalizeUbicacion(e.Ubicacion);
   const bloque = e.BloqueBol || "";
-  setResult(loc, bloque, "ENCONTRADO");
+  const diaSec = getDiaSec(e);
+  setResult(loc, bloque, diaSec, "ENCONTRADO");
   vib(true);
   if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
 }
@@ -190,7 +201,7 @@ $("start").onclick = () => {
   showErr("");
   setHeader();
   hideOpSelector();
-  setResult("—","", "OK: listo");
+  setResult("—","", "", "OK: listo");
   setTimeout(()=> $("file").click(), 150);
 };
 
@@ -202,7 +213,7 @@ $("reset").onclick = () => {
   showErr("");
   setHeader();
   hideOpSelector();
-  setResult("—","", "Listo");
+  setResult("—","", "", "Listo");
 };
 
 $("scan").onclick = () => {
@@ -287,7 +298,7 @@ $("file").addEventListener("change", async (e) => {
 
   showErr("");
   hideOpSelector();
-  setResult("—","", "Leyendo QR...");
+  setResult("—","", "", "Leyendo QR...");
 
   try {
     const raw = (await decodeQRSmart(file)).trim().toUpperCase();
@@ -295,14 +306,15 @@ $("file").addEventListener("change", async (e) => {
 
     const entries = DATA?.models?.[currentModel]?.[raw];
     if (!entries || entries.length === 0) {
-      setResult("NO ENCONTRADO","", "Sin coincidencia");
+      setResult("NO ENCONTRADO","", "", "Sin coincidencia");
       vib(false);
       if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
     } else if (entries.length === 1) {
       const e0 = entries[0];
       const loc = normalizeUbicacion(e0.Ubicacion);
       const bloque = e0.BloqueBol || "";
-      setResult(loc, bloque, "ENCONTRADO");
+      const diaSec = getDiaSec(e0);
+      setResult(loc, bloque, diaSec, "ENCONTRADO");
       vib(true);
       if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
     } else {
@@ -311,7 +323,7 @@ $("file").addEventListener("change", async (e) => {
       // aquí esperas click
     }
   } catch(err) {
-    setResult("ERROR","", "Fallo lectura");
+    setResult("ERROR","", "", "Fallo lectura");
     showErr(String(err.message||err));
     vib(false);
   } finally {
@@ -320,7 +332,7 @@ $("file").addEventListener("change", async (e) => {
 });
 
 setHeader();
-setResult("—","", currentModel ? "OK: listo" : "Listo");
+setResult("—","", "", currentModel ? "OK: listo" : "Listo");
 </script>
   <script>
     if ("serviceWorker" in navigator) {

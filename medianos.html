@@ -29,7 +29,7 @@
     .opTitle{font-size:14px;color:#bbb;margin-top:8px}
     details summary{cursor:pointer}
     code{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
-  
+
     .station-toggle{display:flex;justify-content:center;align-items:center;gap:10px;margin-bottom:10px}
     .station-toggle .lbl{font-weight:800;color:#b9c7ff;font-size:14px;min-width:64px;text-align:center}
     .switch{width:96px;height:40px;border-radius:999px;border:1px solid #2a3a64;background:rgba(110,168,255,.18);position:relative;cursor:pointer}
@@ -77,6 +77,7 @@
     <div class="center">
       <div id="zona" class="mid">—</div>
       <div id="maleta" class="big"></div>
+      <div id="day" class="status"></div>
       <div id="status" class="status">Listo</div>
     </div>
 
@@ -4784,9 +4785,16 @@ function setHeader(){
   $("hdr").textContent = `Estación: ${currentStation||"—"} | Serie: ${currentSerie||"—"} | Modelo: ${currentModel||"—"}`;
 }
 
-function setResult(zonaText, maletaText, statusText){
+function getDiaSec(entry){
+  const raw = entry?.DiaSec ?? entry?.DiaSecuencia ?? entry?.Dia_Seq ?? entry?.["Día Sec."] ?? entry?.["Dia Sec."] ?? "";
+  const day = String(raw ?? "").trim();
+  return day && day !== "0" ? day : "";
+}
+
+function setResult(zonaText, maletaText, diaSecText, statusText){
   $("zona").textContent = zonaText || "—";
   $("maleta").textContent = maletaText ? `MALETA(S): ${maletaText}` : "";
+  $("day").textContent = diaSecText ? `DÍA SEC.: ${diaSecText}` : "";
   $("status").textContent = statusText || "";
 }
 
@@ -4873,12 +4881,14 @@ function showOpSelector(entries, code){
     const b = document.createElement("button");
     b.className = "opBtn";
     const label = String(e.Operacion || `Operación ${idx+1}`).trim();
-    b.textContent = label.length > 70 ? (label.slice(0,70) + "…") : label;
+    const dayLabel = getDiaSec(e);
+    const fullLabel = dayLabel ? `${label} · Día ${dayLabel}` : label;
+    b.textContent = fullLabel.length > 80 ? (fullLabel.slice(0,80) + "…") : fullLabel;
     b.onclick = () => selectOperation(idx);
     ops.appendChild(b);
   });
 
-  setResult("ELIGE OPERACIÓN", "", `Coincidencias: ${entries.length}`);
+  setResult("ELIGE OPERACIÓN", "", "", `Coincidencias: ${entries.length}`);
 }
 
 function selectOperation(idx){
@@ -4887,7 +4897,8 @@ function selectOperation(idx){
   hideOpSelector();
   const zona = normalizeZona(e.Ubicacion);
   const maleta = String(e.Maleta || "").trim();
-  setResult(zona, maleta, "ENCONTRADO");
+  const diaSec = getDiaSec(e);
+  setResult(zona, maleta, diaSec, "ENCONTRADO");
   vib(true);
   if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
 }
@@ -4908,7 +4919,7 @@ $("start").onclick = () => {
   showErr("");
   hideOpSelector();
   setHeader();
-  setResult("—", "", "OK: listo");
+  setResult("—", "", "", "OK: listo");
   setTimeout(()=> $("file").click(), 150);
 };
 
@@ -4921,7 +4932,7 @@ $("reset").onclick = () => {
   showErr("");
   hideOpSelector();
   setHeader();
-  setResult("—", "", "Listo");
+  setResult("—", "", "", "Listo");
 };
 
 $("scan").onclick = () => {
@@ -4998,7 +5009,7 @@ $("file").addEventListener("change", async (e)=>{
 
   showErr("");
   hideOpSelector();
-  setResult("—", "", "Leyendo QR...");
+  setResult("—", "", "", "Leyendo QR...");
 
   try{
     if (!ensureReady()) throw new Error("No listo: falta serie/modelo.");
@@ -5009,7 +5020,7 @@ $("file").addEventListener("change", async (e)=>{
     const entries = findEntriesForQR(currentStation, currentModel, code);
 
     if (!entries){
-      setResult("NO ENCONTRADO", "", "Sin coincidencia");
+      setResult("NO ENCONTRADO", "", "", "Sin coincidencia");
       vib(false);
       if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
       return;
@@ -5025,7 +5036,7 @@ $("file").addEventListener("change", async (e)=>{
     showOpSelector(entries, code);
 
   }catch(err){
-    setResult("ERROR", "", "Fallo lectura");
+    setResult("ERROR", "", "", "Fallo lectura");
     showErr(String(err.message||err));
     vib(false);
   }finally{
@@ -5036,7 +5047,7 @@ $("file").addEventListener("change", async (e)=>{
 // ---- Init ----
 setStation(currentStation);
 setHeader();
-setResult("—", "", currentModel ? "OK: listo" : "Listo");
+setResult("—", "", "", currentModel ? "OK: listo" : "Listo");
 
 </script>
   <script>
