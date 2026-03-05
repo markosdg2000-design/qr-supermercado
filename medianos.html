@@ -4756,16 +4756,6 @@ const DATA = {
 
 
 
-const OVERRIDE_KEY = "qr_data_medianos";
-let ACTIVE_DATA = DATA;
-try {
-  const raw = localStorage.getItem(OVERRIDE_KEY);
-  if (raw) {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") ACTIVE_DATA = parsed;
-  }
-} catch(_) {}
-
 // ====== LÓGICA (igual que GRANDES) ======
 
 const $ = id => document.getElementById(id);
@@ -4860,7 +4850,7 @@ function ensureReady(){
 
 // ---- BÚSQUEDA QR en JSON (SIN INPUT DE COMPONENTE) ----
 function findEntriesForQR(station, model, qr){
-  const stNode = ACTIVE_DATA?.[station];
+  const stNode = DATA?.[station];
   const mNode = stNode?.[model];
   if (!mNode) return null;
 
