@@ -7,7 +7,7 @@ const ASSETS = [
   "./admin-datos.html",
   "./manifest.webmanifest",
   "./service-worker.js",
-  "./js/jsqr.js",
+  "./js/jsQR.js",
   "./js/data-importer-browser.js",
   "./data/medianos.json",
   "./icons/icon-192.png",
