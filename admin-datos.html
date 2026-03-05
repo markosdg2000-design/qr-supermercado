@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Administrador de datos QR</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0f0f10;color:#fff}
+    .wrap{max-width:980px;margin:0 auto;padding:20px;display:grid;gap:14px}
+    .card{background:#17181b;border:1px solid #2a2b31;border-radius:14px;padding:14px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    input,button,select{font-size:16px;padding:10px;border-radius:10px;border:1px solid #333}
+    input,select{background:#0b0b0b;color:#fff;width:100%}
+    button{background:#2b6cff;color:#fff;border:none;font-weight:800;cursor:pointer}
+    button.secondary{background:#2a2b31}
+    .hint{color:#bdbdbd;font-size:13px}
+    pre{white-space:pre-wrap;background:#0b0b0b;border:1px solid #222;border-radius:10px;padding:10px;max-height:220px;overflow:auto}
+    .ok{color:#7CFF9E}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Administrador de datos (sin Python)</h1>
+    <p class="hint">Sube los Excel, genera JSON en el navegador y aplica los datos a las apps de Grandes y Medianos en este mismo navegador.</p>
+
+    <div class="card">
+      <h2>1) GRANDES</h2>
+      <div class="row">
+        <input id="fileGrandes" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+        <div>
+          <button id="btnGrandes">Procesar GRANDES</button>
+        </div>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <button id="applyGrandes" class="secondary">Aplicar a la app (localStorage)</button>
+        <button id="downloadGrandes" class="secondary">Descargar JSON</button>
+      </div>
+      <pre id="outGrandes">Sin procesar.</pre>
+    </div>
+
+    <div class="card">
+      <h2>2) MEDIANOS</h2>
+      <div class="row">
+        <input id="fileMedianos" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+        <div>
+          <label class="hint" for="station">Estación por defecto</label>
+          <select id="station">
+            <option value="ES05">ES05</option>
+            <option value="ES0304">ES0304</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <button id="btnMedianos">Procesar MEDIANOS</button>
+        <button id="applyMedianos" class="secondary">Aplicar a la app (localStorage)</button>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <button id="downloadMedianos" class="secondary">Descargar JSON</button>
+        <button id="clearAll" class="secondary">Borrar datos cargados</button>
+      </div>
+      <pre id="outMedianos">Sin procesar.</pre>
+    </div>
+
+    <div class="card">
+      <h2>3) Abrir apps</h2>
+      <div class="row">
+        <button onclick="location.href='grandes.html'">Abrir GRANDES</button>
+        <button onclick="location.href='medianos.html'">Abrir MEDIANOS</button>
+      </div>
+      <p id="status" class="hint">Estado: listo</p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="./js/data-importer-browser.js"></script>
+  <script>
+    const KEY_G = "qr_data_grandes";
+    const KEY_M = "qr_data_medianos";
+    let lastGrandes = null;
+    let lastMedianos = null;
+
+    function toRows(workbook){
+      const firstSheet = workbook.SheetNames[0];
+      return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {defval:""});
+    }
+
+    async function readWorkbook(file){
+      const buf = await file.arrayBuffer();
+      return XLSX.read(buf, {type:"array"});
+    }
+
+    function downloadJson(filename, data){
+      const blob = new Blob([JSON.stringify(data)], {type:"application/json"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function countGrandes(data){
+      const models = Object.keys(data?.models || {});
+      let qrs = 0;
+      models.forEach(m => qrs += Object.keys(data.models[m] || {}).length);
+      return {models: models.length, qrs};
+    }
+
+    function countMedianos(data){
+      const stations = Object.keys(data || {});
+      let models = 0;
+      stations.forEach(s => models += Object.keys(data[s] || {}).length);
+      return {stations: stations.length, models};
+    }
+
+    document.getElementById("btnGrandes").onclick = async () => {
+      const file = document.getElementById("fileGrandes").files?.[0];
+      if (!file) return alert("Selecciona primero el Excel de GRANDES");
+      const wb = await readWorkbook(file);
+      const rows = toRows(wb);
+      lastGrandes = QRImporter.buildGrandes(rows);
+      const c = countGrandes(lastGrandes);
+      document.getElementById("outGrandes").textContent = `OK\nModelos: ${c.models}\nQRs: ${c.qrs}`;
+    };
+
+    document.getElementById("btnMedianos").onclick = async () => {
+      const file = document.getElementById("fileMedianos").files?.[0];
+      if (!file) return alert("Selecciona primero el Excel de MEDIANOS");
+      const station = document.getElementById("station").value;
+      const wb = await readWorkbook(file);
+      const rows = toRows(wb);
+      lastMedianos = QRImporter.buildMedianos(rows, station);
+      const c = countMedianos(lastMedianos);
+      document.getElementById("outMedianos").textContent = `OK\nEstaciones: ${c.stations}\nModelos: ${c.models}`;
+    };
+
+    document.getElementById("applyGrandes").onclick = () => {
+      if (!lastGrandes) return alert("Procesa primero GRANDES");
+      localStorage.setItem(KEY_G, JSON.stringify(lastGrandes));
+      document.getElementById("status").innerHTML = '<span class="ok">Grandes aplicado en este navegador.</span>';
+    };
+
+    document.getElementById("applyMedianos").onclick = () => {
+      if (!lastMedianos) return alert("Procesa primero MEDIANOS");
+      localStorage.setItem(KEY_M, JSON.stringify(lastMedianos));
+      document.getElementById("status").innerHTML = '<span class="ok">Medianos aplicado en este navegador.</span>';
+    };
+
+    document.getElementById("downloadGrandes").onclick = () => {
+      if (!lastGrandes) return alert("Procesa primero GRANDES");
+      downloadJson("grandes.json", lastGrandes);
+    };
+
+    document.getElementById("downloadMedianos").onclick = () => {
+      if (!lastMedianos) return alert("Procesa primero MEDIANOS");
+      downloadJson("medianos.json", lastMedianos);
+    };
+
+    document.getElementById("clearAll").onclick = () => {
+      localStorage.removeItem(KEY_G);
+      localStorage.removeItem(KEY_M);
+      document.getElementById("status").innerHTML = '<span class="ok">Datos locales borrados.</span>';
+    };
+  </script>
+</body>
+</html>
