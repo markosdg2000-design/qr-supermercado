@@ -9,6 +9,7 @@
     .wrap{max-width:980px;margin:0 auto;padding:20px;display:grid;gap:14px}
     .card{background:#17181b;border:1px solid #2a2b31;border-radius:14px;padding:14px}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row.one{grid-template-columns:1fr}
     input,button,select{font-size:16px;padding:10px;border-radius:10px;border:1px solid #333}
     input,select{background:#0b0b0b;color:#fff;width:100%}
     button{background:#2b6cff;color:#fff;border:none;font-weight:800;cursor:pointer}
@@ -59,9 +60,11 @@
         <button id="btnMedianos">Procesar MEDIANOS</button>
         <button id="applyMedianos" class="secondary">Aplicar a la app (localStorage)</button>
       </div>
-      <div style="margin-top:10px" class="row">
+      <div style="margin-top:10px" class="row one">
         <button id="downloadMedianos" class="secondary">Descargar JSON</button>
-        <button id="clearAll" class="secondary">Borrar datos cargados</button>
+      </div>
+      <div style="margin-top:10px" class="row one">
+        <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
       </div>
       <div style="margin-top:10px" class="row">
         <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
@@ -237,11 +240,6 @@ QRs: ${c.qrs}`;
       downloadJson("medianos.json", lastMedianos);
     };
 
-    document.getElementById("clearAll").onclick = () => {
-      localStorage.removeItem(KEY_G);
-      localStorage.removeItem(KEY_M);
-      document.getElementById("status").innerHTML = '<span class="ok">Datos locales borrados.</span>';
-    };
   </script>
 </body>
 </html>
