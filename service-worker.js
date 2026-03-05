@@ -1,4 +1,4 @@
-const CACHE_NAME = "qr-supermercado-v2";
+const CACHE_NAME = "qr-supermercado-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,8 +7,9 @@ const ASSETS = [
   "./admin-datos.html",
   "./manifest.webmanifest",
   "./service-worker.js",
-  "./js/jsqr.js",
+  "./js/jsQR.js",
   "./js/data-importer-browser.js",
+  "./data/medianos.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
 ];
