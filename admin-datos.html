@@ -37,8 +37,9 @@
         <button id="applyGrandes" class="secondary">Aplicar a la app (localStorage)</button>
         <button id="downloadGrandes" class="secondary">Descargar JSON</button>
       </div>
-      <div style="margin-top:10px" class="row one">
+      <div style="margin-top:10px" class="row">
         <button id="templateGrandes" class="secondary">Descargar plantilla GRANDES (Excel)</button>
+        <div></div>
       </div>
       <pre id="outGrandes">Sin procesar.</pre>
     </div>
@@ -64,6 +65,10 @@
       </div>
       <div style="margin-top:10px" class="row one">
         <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
+        <div></div>
       </div>
       <pre id="outMedianos">Sin procesar.</pre>
     </div>
@@ -154,25 +159,6 @@
       XLSX.writeFile(wb, "plantilla-actualizacion-grandes.xlsx");
     }
 
-    function downloadTemplateMedianos(){
-      const rows = [
-        {
-          ESTACION: "ES05",
-          COCHE: "Modelo_ejemplo",
-          MATERIAL: "COMP_PADRE_001",
-          "NºSERIE": "QR_0001",
-          TEXTOBREVEDEMATERIAL: "Operación de ejemplo",
-          UBICACIONDESEADA: "Ubicación 1",
-          MALETA: "M1",
-          DIASEC: "1",
-        },
-      ];
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "MEDIANOS");
-      XLSX.writeFile(wb, "plantilla-actualizacion-medianos.xlsx");
-    }
-
     function countGrandes(data){
       const models = Object.keys(data?.models || {});
       let qrs = 0;
@@ -247,10 +233,6 @@ QRs: ${c.qrs}`;
 
     document.getElementById("templateGrandes").onclick = () => {
       downloadTemplateGrandes();
-    };
-
-    document.getElementById("templateMedianos").onclick = () => {
-      downloadTemplateMedianos();
     };
 
     document.getElementById("downloadMedianos").onclick = () => {

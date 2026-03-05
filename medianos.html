@@ -5156,16 +5156,6 @@ $("file").addEventListener("change", async (e)=>{
   const baseStatus = currentModel ? "OK: listo" : "Listo";
   setResult("—", "", "", `${baseStatus} · Fuente: ${result.source}`);
 })();
-if ($("copyBtn")) $("copyBtn").onclick = async ()=> {
-  if (!registros.length) return alert("No hay registros todavía.");
-  try { await navigator.clipboard.writeText(summaryText()); alert("Tabla copiada al portapapeles."); } catch(_) { alert("No se pudo copiar en este dispositivo."); }
-};
-if ($("mailBtn")) $("mailBtn").onclick = ()=> {
-  if (!registros.length) return alert("No hay registros todavía.");
-  const subject = encodeURIComponent(`Recepción ${currentStation} (${registros.length} registros)`);
-  const body = encodeURIComponent("Resumen de recepción de materiales.\n\n" + summaryText());
-  window.location.href = `mailto:?subject=${subject}&body=${body}`;
-};
 
 </script>
   <script>
