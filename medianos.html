@@ -4806,6 +4806,34 @@ let autoNext = (localStorage.getItem("autoNext_med") ?? "1") === "1";
 
 let pendingEntries = null; // [{Operacion,Ubicacion,Maleta}, ...]
 let pendingCode = "";
+let DATA_MED = DATA;
+
+async function loadMedianosData(){
+  const localRaw = localStorage.getItem("qr_data_medianos");
+  if (localRaw) {
+    try {
+      const parsed = JSON.parse(localRaw);
+      if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+        DATA_MED = parsed;
+        return { source: "localStorage" };
+      }
+    } catch (_) {}
+  }
+
+  try {
+    const resp = await fetch("./data/medianos.json", { cache: "no-store" });
+    if (resp.ok) {
+      const fileData = await resp.json();
+      if (fileData && typeof fileData === "object" && Object.keys(fileData).length > 0) {
+        DATA_MED = fileData;
+        return { source: "archivo ./data/medianos.json" };
+      }
+    }
+  } catch (_) {}
+
+  DATA_MED = DATA;
+  return { source: "datos integrados" };
+}
 
 // ---- Switch estación ----
 const stationSwitch = document.getElementById("stationSwitch");
@@ -4850,7 +4878,7 @@ function ensureReady(){
 
 // ---- BÚSQUEDA QR en JSON (SIN INPUT DE COMPONENTE) ----
 function findEntriesForQR(station, model, qr){
-  const stNode = DATA?.[station];
+  const stNode = DATA_MED?.[station];
   const mNode = stNode?.[model];
   if (!mNode) return null;
 
@@ -5045,9 +5073,13 @@ $("file").addEventListener("change", async (e)=>{
 });
 
 // ---- Init ----
-setStation(currentStation);
-setHeader();
-setResult("—", "", "", currentModel ? "OK: listo" : "Listo");
+(async () => {
+  const result = await loadMedianosData();
+  setStation(currentStation);
+  setHeader();
+  const baseStatus = currentModel ? "OK: listo" : "Listo";
+  setResult("—", "", "", `${baseStatus} · Fuente: ${result.source}`);
+})();
 
 </script>
   <script>
