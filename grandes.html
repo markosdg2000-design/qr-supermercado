@@ -92,15 +92,40 @@
       grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
       gap:10px;
     }
+
     .modalCard{
-      background:#141414;border:1px solid #2a2a2a;border-radius:12px;padding:10px
+      background:#141414;
+      border:1px solid #2a2a2a;
+      border-radius:12px;
+      padding:10px;
     }
-    .modalCard .k{font-size:12px;color:#999;margin-bottom:4px}
-    .modalCard .v{font-size:18px;font-weight:800;line-height:1.2}
-    .opList{
-      display:grid;gap:8px;
-      max-height:260px;overflow:auto;
+    
+    .modalCard .k{
+      font-size:11px;
+      color:#8e8e8e;
+      margin-bottom:6px;
+      text-transform:uppercase;
+      letter-spacing:.4px;
     }
+    
+    .modalCard .v{
+      font-size:30px;
+      font-weight:1000;
+      line-height:1.05;
+      color:#ff3b3b;
+    }
+    
+    #mDia{
+      font-size:26px;
+    }
+    
+    .prepText{
+      font-size:13px;
+      color:#a0a0a0;
+      line-height:1.35;
+      white-space:pre-wrap;
+    }
+    
     .opBtn{
       text-align:left;
       background:#202020;
@@ -179,23 +204,25 @@
   <div class="modal" role="dialog" aria-modal="true">
     <h3 id="modalTitle">Resultado de escaneo</h3>
 
-    <div id="singleResult" style="display:none;">
-      <div class="modalGrid">
-        <div class="modalCard">
-          <div class="k">Destino</div>
-          <div class="v" id="mDestino">—</div>
+      <div id="singleResult" style="display:none;">
+        <div class="modalGrid">
+          <div class="modalCard">
+            <div class="k">Ubicación deseada</div>
+            <div class="v" id="mDestino">—</div>
+          </div>
+          <div class="modalCard">
+            <div class="k">Bloque Vol</div>
+            <div class="v" id="mBloque">—</div>
+          </div>
+          <div class="modalCard">
+            <div class="k">Día secuencia</div>
+            <div class="v" id="mDia">—</div>
+          </div>
         </div>
+      
         <div class="modalCard">
-          <div class="k">Bloque</div>
-          <div class="v" id="mBloque">—</div>
-        </div>
-        <div class="modalCard">
-          <div class="k">Día secuencia</div>
-          <div class="v" id="mDia">—</div>
-        </div>
-        <div class="modalCard">
-          <div class="k">QR</div>
-          <div class="v" id="mQr" style="font-size:14px;">—</div>
+          <div class="k">Preparación</div>
+          <div class="prepText" id="mPrep">—</div>
         </div>
       </div>
 
@@ -457,14 +484,12 @@
     $("modalTitle").textContent = "Componente encontrado";
     $("singleResult").style.display = "block";
     $("multiResult").style.display = "none";
-
+  
     $("mDestino").textContent = normalizeDestino(entry?.BloqueBol);
     $("mBloque").textContent = normalizeBloque(entry?.Ubicacion);
     $("mDia").textContent = getDiaSec(entry);
-    $("mQr").textContent = qr;
-    $("mOperacion").textContent = entry?.Operacion || "—";
-    $("mPrep").textContent = entry?.InstruccionPrep || "—";
-
+    $("mPrep").textContent = entry?.InstruccionPrep || "Sin preparación específica.";
+  
     setLastResult(qr, entry);
     setStatus("Componente encontrado.");
     $("modalWrap").style.display = "flex";
