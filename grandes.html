@@ -103,8 +103,14 @@
     }
     .opBtn{
       text-align:left;
-      background:#202020;border:1px solid #333;color:#fff;
-      border-radius:12px;padding:12px;font-weight:700;
+      background:#202020;
+      border:1px solid #333;
+      color:#fff;
+      border-radius:12px;
+      padding:14px 12px;
+      font-weight:800;
+      font-size:18px;
+      line-height:1.25;
     }
     .opBtn small{
       display:block;color:#aaa;font-weight:500;margin-top:4px
@@ -205,7 +211,7 @@
     </div>
 
     <div id="multiResult" style="display:none;">
-      <div class="muted">Este QR aparece en varias operaciones. Elige la correcta:</div>
+      <div class="muted">Elige la operación correcta:</div>
       <div class="opList" id="multiList"></div>
     </div>
 
@@ -472,18 +478,15 @@
     const list = $("multiList");
     list.innerHTML = "";
 
-    entries.forEach((entry, i) => {
-      const btn = document.createElement("button");
-      btn.className = "opBtn";
-      btn.innerHTML = `
-        ${normalizeDestino(entry?.BloqueBol)} · ${normalizeBloque(entry?.Ubicacion)} · Día ${getDiaSec(entry)}
-        <small>${entry?.Operacion || "Sin operación"}${entry?.InstruccionPrep ? " | " + entry.InstruccionPrep : ""}</small>
-      `;
-      btn.onclick = () => {
-        openSingleResult(qr, entry);
-      };
-      list.appendChild(btn);
-    });
+      entries.forEach((entry) => {
+        const btn = document.createElement("button");
+        btn.className = "opBtn";
+        btn.textContent = entry?.Operacion || "Sin operación";
+        btn.onclick = () => {
+          openSingleResult(qr, entry);
+        };
+        list.appendChild(btn);
+      });
 
     setStatus(`Coincidencias encontradas: ${entries.length}`);
     $("modalWrap").style.display = "flex";
