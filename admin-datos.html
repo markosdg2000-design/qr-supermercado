@@ -10,19 +10,34 @@
     .card{background:#17181b;border:1px solid #2a2b31;border-radius:14px;padding:14px}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .row.one{grid-template-columns:1fr}
+    .medianos-grid{display:grid;gap:14px}
+    .medianos-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .field{display:grid;gap:6px}
+    .field-label{font-size:13px;color:#c8c8c8;font-weight:700;letter-spacing:.2px}
     input,button,select{font-size:16px;padding:10px;border-radius:10px;border:1px solid #333}
     input,select{background:#0b0b0b;color:#fff;width:100%}
     button{background:#2b6cff;color:#fff;border:none;font-weight:800;cursor:pointer}
+    button.primary-wide{padding:12px;font-size:17px}
     button.secondary{background:#2a2b31}
+    button:disabled{opacity:.5;cursor:not-allowed}
     .hint{color:#bdbdbd;font-size:13px}
     pre{white-space:pre-wrap;background:#0b0b0b;border:1px solid #222;border-radius:10px;padding:10px;max-height:220px;overflow:auto}
-    .ok{color:#7CFF9E}
+    .output-box{background:#0b0b0b;border:1px solid #25262b;border-radius:12px;padding:12px;display:grid;gap:6px;line-height:1.4}
+    .output-box h3{margin:0;font-size:15px;color:#d7e2ff}
+    .output-row{font-size:14px;color:#e4e4e4}
+    .output-row strong{color:#fff}
+    .output-warn{margin:0;padding-left:18px;color:#ffd48a;font-size:13px}
+    .output-warn li{margin:2px 0}
+    @media (max-width: 700px){
+      .row{grid-template-columns:1fr}
+      .medianos-actions{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Administrador de datos (sin Python)</h1>
-    <p class="hint">Sube los Excel, genera JSON en el navegador y aplica los datos a las apps de Grandes y Medianos en este mismo navegador.</p>
+    <p class="hint">Sube los Excel y genera JSON en el navegador para actualizar los datos de GRANDES y MEDIANOS.</p>
 
     <div class="card">
       <h2>1) GRANDES</h2>
@@ -33,8 +48,7 @@
           <button id="btnGrandes">Procesar GRANDES</button>
         </div>
       </div>
-      <div style="margin-top:10px" class="row">
-        <button id="applyGrandes" class="secondary">Aplicar a la app (localStorage)</button>
+      <div style="margin-top:10px" class="row one">
         <button id="downloadGrandes" class="secondary">Descargar JSON</button>
       </div>
       <div style="margin-top:10px" class="row">
@@ -46,31 +60,33 @@
 
     <div class="card">
       <h2>2) MEDIANOS</h2>
-      <div class="row">
-        <input id="fileMedianos" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
-        <div>
-          <label class="hint" for="station">Estación por defecto</label>
-          <select id="station">
+      <p class="hint">Carga un archivo, aplica estación por defecto cuando falte en origen y exporta el JSON normalizado.</p>
+      <div class="medianos-grid">
+        <div class="row">
+          <div class="field">
+            <label class="field-label" for="fileMedianos">Archivo Excel/CSV</label>
+            <input id="fileMedianos" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="station">Estación por defecto</label>
+            <select id="station">
             <option value="ES05">ES05</option>
             <option value="ES0304">ES0304</option>
           </select>
+          </div>
+        </div>
+        <div class="row one">
+          <button id="btnMedianos" class="primary-wide">Procesar MEDIANOS</button>
+        </div>
+        <div class="medianos-actions">
+          <button id="downloadMedianos" class="secondary">Descargar JSON</button>
+          <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
+        </div>
+        <div id="outMedianos" class="output-box" aria-live="polite">
+          <h3>Resultado</h3>
+          <div class="output-row">Sin procesar.</div>
         </div>
       </div>
-      <div style="margin-top:10px" class="row">
-        <button id="btnMedianos">Procesar MEDIANOS</button>
-        <button id="applyMedianos" class="secondary">Aplicar a la app (localStorage)</button>
-      </div>
-      <div style="margin-top:10px" class="row one">
-        <button id="downloadMedianos" class="secondary">Descargar JSON</button>
-      </div>
-      <div style="margin-top:10px" class="row one">
-        <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
-      </div>
-      <div style="margin-top:10px" class="row">
-        <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
-        <div></div>
-      </div>
-      <pre id="outMedianos">Sin procesar.</pre>
     </div>
 
     <div class="card">
@@ -79,15 +95,12 @@
         <button onclick="location.href='grandes.html'">Abrir GRANDES</button>
         <button onclick="location.href='medianos.html'">Abrir MEDIANOS</button>
       </div>
-      <p id="status" class="hint">Estado: listo</p>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="./js/data-importer-browser.js"></script>
   <script>
-    const KEY_G = "qr_data_grandes";
-    const KEY_M = "qr_data_medianos";
     let lastGrandes = null;
     let lastMedianos = null;
 
@@ -173,6 +186,99 @@
       return {stations: stations.length, models};
     }
 
+    function normalizeStationId(rawStation, fallback){
+      const s = String(rawStation || "").trim().toUpperCase();
+      if (!s) return fallback;
+      const m = s.match(/ES\s*0?([0-9]{1,2})/);
+      if (m) return `ES${String(parseInt(m[1], 10)).padStart(2, "0")}`;
+      const m2 = s.match(/0?([0-9]{1,2})/);
+      if (m2) return `ES${String(parseInt(m2[1], 10)).padStart(2, "0")}`;
+      return fallback;
+    }
+
+    function analyzeMedianosRows(rows, defaultStation){
+      const stationSet = new Set();
+      const modelSet = new Set();
+      const warnings = [];
+      let validRows = 0;
+
+      const hasModelHeader = hasAnyHeader(rows, ["COCHE", "MODELO", "MODEL"]);
+      const hasQrHeader = hasAnyHeader(rows, ["NºSERIE", "N SERIE", "NSERIE", "QR", "CODIGOQR", "COMPONENTE"]);
+
+      rows.forEach((r) => {
+        const model = QRImporter.getFirst(r, ["COCHE", "MODELO", "MODEL"]);
+        const qr = QRImporter.getFirst(r, ["NºSERIE", "N SERIE", "NSERIE", "QR", "CODIGOQR", "COMPONENTE"]);
+        if (!model || !qr) return;
+
+        validRows += 1;
+        modelSet.add(model);
+
+        const stationRaw = QRImporter.getFirst(r, ["ESTACION", "AGRUP", "AREA"]);
+        stationSet.add(normalizeStationId(stationRaw, defaultStation));
+      });
+
+      if (!hasModelHeader) warnings.push("Falta columna de modelo (COCHE/MODELO).");
+      if (!hasQrHeader) warnings.push("Falta columna de número de serie/QR (NºSERIE/QR/CODIGOQR).");
+      if (rows.length > 0 && validRows === 0) warnings.push("Ninguna fila contiene a la vez modelo y número de serie/QR.");
+
+      return {
+        totalRows: rows.length,
+        validRows,
+        skippedRows: rows.length - validRows,
+        stations: stationSet.size,
+        models: modelSet.size,
+        warnings,
+      };
+    }
+
+    function renderMedianosOutput({fileName, station, stats}){
+      const out = document.getElementById("outMedianos");
+      const warningHtml = stats.warnings.length
+        ? `<ul class="output-warn">${stats.warnings.map(w => `<li>${w}</li>`).join("")}</ul>`
+        : "";
+
+      out.innerHTML = `
+        <h3>Resultado de importación</h3>
+        <div class="output-row"><strong>Archivo:</strong> ${fileName}</div>
+        <div class="output-row"><strong>Estación por defecto:</strong> ${station}</div>
+        <div class="output-row"><strong>Filas leídas:</strong> ${stats.totalRows}</div>
+        <div class="output-row"><strong>Filas válidas:</strong> ${stats.validRows}</div>
+        <div class="output-row"><strong>Filas omitidas:</strong> ${stats.skippedRows}</div>
+        <div class="output-row"><strong>Estaciones detectadas:</strong> ${stats.stations}</div>
+        <div class="output-row"><strong>Coches/modelos detectados:</strong> ${stats.models}</div>
+        ${warningHtml}
+      `;
+    }
+
+    function downloadTemplateMedianos(){
+      const rows = [
+        {
+          ESTACION: "ES05",
+          COCHE: "C210",
+          COMPONENTE_PADRE: "ZOCALO_PASILLO",
+          "NºSERIE": "61502009",
+          TEXTOBREVEDEMATERIAL: "Montaje zócalo lateral",
+          UBICACIONDESEADA: "SOBRECUBIERTA",
+          MALETA: "M12",
+          DIASEC: "2",
+        },
+        {
+          ESTACION: "ES0304",
+          COCHE: "C130",
+          COMPONENTE_PADRE: "BASTIDOR_CENTRAL",
+          "NºSERIE": "61501022",
+          TEXTOBREVEDEMATERIAL: "Revisión bastidor",
+          UBICACIONDESEADA: "BAJOBASTIDOR",
+          MALETA: "M03",
+          DIASEC: "1",
+        },
+      ];
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "MEDIANOS");
+      XLSX.writeFile(wb, "plantilla-actualizacion-medianos.xlsx");
+    }
+
     document.getElementById("btnGrandes").onclick = async () => {
       const file = document.getElementById("fileGrandes").files?.[0];
       if (!file) return alert("Selecciona primero el Excel de GRANDES");
@@ -205,26 +311,38 @@ QRs: ${c.qrs}`;
 
     document.getElementById("btnMedianos").onclick = async () => {
       const file = document.getElementById("fileMedianos").files?.[0];
-      if (!file) return alert("Selecciona primero el Excel de MEDIANOS");
+      if (!file) {
+        renderMedianosOutput({
+          fileName: "—",
+          station: document.getElementById("station").value,
+          stats: {
+            totalRows: 0,
+            validRows: 0,
+            skippedRows: 0,
+            stations: 0,
+            models: 0,
+            warnings: ["Debes seleccionar un archivo Excel/CSV antes de procesar."],
+          },
+        });
+        return;
+      }
       const station = document.getElementById("station").value;
       const wb = await readWorkbook(file);
       const rows = toRows(wb);
       lastMedianos = QRImporter.buildMedianos(rows, station);
       const c = countMedianos(lastMedianos);
-      document.getElementById("outMedianos").textContent = `OK\nEstaciones: ${c.stations}\nModelos: ${c.models}`;
+      const stats = analyzeMedianosRows(rows, station);
+      renderMedianosOutput({
+        fileName: file.name,
+        station,
+        stats: {
+          ...stats,
+          stations: c.stations,
+          models: c.models,
+        },
+      });
     };
 
-    document.getElementById("applyGrandes").onclick = () => {
-      if (!lastGrandes) return alert("Procesa primero GRANDES");
-      localStorage.setItem(KEY_G, JSON.stringify(lastGrandes));
-      document.getElementById("status").innerHTML = '<span class="ok">Grandes aplicado en este navegador.</span>';
-    };
-
-    document.getElementById("applyMedianos").onclick = () => {
-      if (!lastMedianos) return alert("Procesa primero MEDIANOS");
-      localStorage.setItem(KEY_M, JSON.stringify(lastMedianos));
-      document.getElementById("status").innerHTML = '<span class="ok">Medianos aplicado en este navegador.</span>';
-    };
 
     document.getElementById("downloadGrandes").onclick = () => {
       if (!lastGrandes) return alert("Procesa primero GRANDES");
@@ -238,6 +356,10 @@ QRs: ${c.qrs}`;
     document.getElementById("downloadMedianos").onclick = () => {
       if (!lastMedianos) return alert("Procesa primero MEDIANOS");
       downloadJson("medianos.json", lastMedianos);
+    };
+
+    document.getElementById("templateMedianos").onclick = () => {
+      downloadTemplateMedianos();
     };
 
   </script>
