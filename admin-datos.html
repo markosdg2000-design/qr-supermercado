@@ -38,7 +38,7 @@
 <body>
   <div class="wrap">
     <h1>Administrador de datos (sin Python)</h1>
-    <p class="hint">Sube los Excel, genera JSON en el navegador y aplica los datos a las apps de Grandes y Medianos en este mismo navegador.</p>
+    <p class="hint">Sube los Excel y genera JSON en el navegador para actualizar los datos de GRANDES y MEDIANOS.</p>
 
     <div class="card">
       <h2>1) GRANDES</h2>
@@ -49,8 +49,7 @@
           <button id="btnGrandes">Procesar GRANDES</button>
         </div>
       </div>
-      <div style="margin-top:10px" class="row">
-        <button id="applyGrandes" class="secondary">Aplicar a la app (localStorage)</button>
+      <div style="margin-top:10px" class="row one">
         <button id="downloadGrandes" class="secondary">Descargar JSON</button>
       </div>
       <div style="margin-top:10px" class="row">
@@ -97,7 +96,6 @@
         <button onclick="location.href='grandes.html'">Abrir GRANDES</button>
         <button onclick="location.href='medianos.html'">Abrir MEDIANOS</button>
       </div>
-      <p id="status" class="hint">Estado: listo</p>
     </div>
   </div>
 
