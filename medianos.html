@@ -4832,7 +4832,7 @@ let currentStation = (localStorage.getItem("med_station") || "ES0304").toUpperCa
 let autoNext = (localStorage.getItem("autoNext_med") ?? "1") === "1";
 let qrScanner = null;
 let scannerRunning = false;
-const registros = [];
+let registros = [];
 let ultimoCodigo = "";
 let ultimoMomento = 0;
 
@@ -4969,6 +4969,20 @@ function selectOperation(idx){
 }
 
 function fmtDate(d){ return new Intl.DateTimeFormat("es-ES", {dateStyle:"short", timeStyle:"medium"}).format(d); }
+
+function loadRegistros(){
+  try {
+    const raw = localStorage.getItem("registros_medianos");
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) registros = parsed;
+  } catch (_) {}
+}
+
+function saveRegistros(){
+  try { localStorage.setItem("registros_medianos", JSON.stringify(registros)); } catch (_) {}
+}
+
 function actualizarTabla(){
   const tb = $("tbody"); if (!tb) return; tb.innerHTML = "";
   registros.forEach((r,i)=>{
@@ -4977,6 +4991,7 @@ function actualizarTabla(){
     tb.appendChild(tr);
   });
   if ($("totalRegistros")) $("totalRegistros").textContent = String(registros.length);
+  saveRegistros();
 }
 function askCantidad(){
   const raw = prompt("Cantidad recibida para este material:", "1");
@@ -5173,6 +5188,8 @@ $("file").addEventListener("change", async (e)=>{
   setStation(currentStation);
   setHeader();
   const baseStatus = currentModel ? "OK: listo" : "Listo";
+  loadRegistros();
+  actualizarTabla();
   setResult("—", "", "", `${baseStatus} · Fuente: ${result.source}`);
 })();
 if ($("copyBtn")) $("copyBtn").onclick = async ()=> {

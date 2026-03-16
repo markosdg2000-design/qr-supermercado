@@ -171,7 +171,7 @@ let currentStation = (localStorage.getItem("station_g") || "ES0304").toUpperCase
 let autoNext = (localStorage.getItem("autoNext") ?? "1") === "1";
 let qrScanner = null;
 let scannerRunning = false;
-const registros = [];
+let registros = [];
 let ultimoCodigo = "";
 let ultimoMomento = 0;
 let pendingEntries = null;
@@ -229,6 +229,20 @@ function setStation(st){
 }
 
 function fmtDate(d){ return new Intl.DateTimeFormat("es-ES", {dateStyle:"short", timeStyle:"medium"}).format(d); }
+
+function loadRegistros(){
+  try {
+    const raw = localStorage.getItem("registros_grandes");
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) registros = parsed;
+  } catch (_) {}
+}
+
+function saveRegistros(){
+  try { localStorage.setItem("registros_grandes", JSON.stringify(registros)); } catch (_) {}
+}
+
 function actualizarTabla(){
   const tb = $("tbody"); if (!tb) return; tb.innerHTML = "";
   registros.forEach((r,i)=>{
@@ -237,6 +251,7 @@ function actualizarTabla(){
     tb.appendChild(tr);
   });
   if ($("totalRegistros")) $("totalRegistros").textContent = String(registros.length);
+  saveRegistros();
 }
 function askCantidad(){
   const raw = prompt("Cantidad recibida para este material:", "1");
@@ -464,6 +479,8 @@ if ($("mailBtn")) $("mailBtn").onclick = ()=> {
   const body = encodeURIComponent("Resumen de recepción de materiales.\n\n" + summaryText());
   window.location.href = `mailto:?subject=${subject}&body=${body}`;
 };
+loadRegistros();
+actualizarTabla();
 setHeader();
 setResult("—","", "", currentModel ? "OK: listo" : "Listo");
 </script>
