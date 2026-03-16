@@ -27,6 +27,7 @@
     .ops{max-height:240px;overflow:auto;margin-top:10px;display:grid;gap:10px}
     .opBtn{background:#202020;border:1px solid #333;color:#fff;font-weight:800}
     .opTitle{font-size:14px;color:#bbb;margin-top:8px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#0b0b0b;border:1px solid #2a2a2a;color:#bbb;font-size:12px}
     details summary{cursor:pointer}
     code{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
 
@@ -35,9 +36,15 @@
     .switch{width:96px;height:40px;border-radius:999px;border:1px solid #2a3a64;background:rgba(110,168,255,.18);position:relative;cursor:pointer}
     .switch .knob{display:block;width:36px;height:36px;border-radius:999px;background:#e9f0ff;position:absolute;top:1px;left:2px;transition:transform .18s ease;box-shadow:0 8px 18px rgba(0,0,0,.35)}
     .switch[data-on="true"] .knob{transform:translateX(54px)}
+    #reader{width:100%;border-radius:14px;overflow:hidden;min-height:220px;background:#000}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{border-bottom:1px solid #2a2a2a;padding:8px;text-align:left}
+    th{color:#bbb;font-weight:700}
+    .footerActions{position:fixed;left:12px;right:12px;bottom:14px;z-index:20;display:grid;gap:8px}
+    .footerAction{border-radius:999px;font-size:18px;box-shadow:0 8px 30px rgba(43,108,255,.35)}
 
   </style>
-  <script src="js/jsqr.js"></script>
+  <script src="js/jsQR.js"></script>
 </head>
 <body>
 <header>
@@ -64,13 +71,18 @@
   </div>
 
   <div class="card">
-    <div class="muted">2) Escaneo por foto</div>
+    <div class="muted">2) Escaneo continuo (cámara trasera)</div>
     <input id="file" type="file" accept="image/*" capture="environment" style="display:none"/>
     <div class="row" style="margin-top:10px;">
-      <button id="scan" class="scanBig">ESCANEAR</button>
+      <button id="scan" class="scanBig">ACTIVAR CÁMARA</button>
       <button id="autoscan" class="secondary">Auto-siguiente: ON</button>
     </div>
-    <div class="hint" style="margin-top:8px;">Auto-siguiente: tras ENCONTRADO/NO, reabre cámara automáticamente. Si hay varias operaciones, espera a que elijas.</div>
+    <div class="row" style="margin-top:8px;align-items:center;">
+      <span class="pill" id="scanState">Escáner parado</span>
+      <span class="pill">Registros: <strong id="totalRegistros">0</strong></span>
+    </div>
+    <div id="reader" style="margin-top:10px"></div>
+    <div class="hint" style="margin-top:8px;">Pulsa Empezar para abrir cámara continua y registrar lecturas durante la jornada.</div>
   </div>
 
   <div class="card">
@@ -87,8 +99,23 @@
     </div>
   </div>
 
+  <div class="card">
+    <h3 style="margin-top:0">Registro de recepción (mañana)</h3>
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>#</th><th>Código</th><th>Cantidad</th><th>Serie</th><th>Modelo</th><th>Estación</th><th>Detalle</th><th>Hora</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
+<div class="footerActions">
+  <button class="footerAction secondary" id="copyBtn">📋 Copiar tabla</button>
+  <button class="footerAction" id="mailBtn">📧 Enviar resumen por correo</button>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode" defer></script>
 <script>
 
 /* ===== Browser guard (MIUI/Mi Browser suele fallar con QR) ===== */
@@ -4803,9 +4830,42 @@ let currentSerie  = localStorage.getItem("serie_med") || "";
 let currentModel  = localStorage.getItem("model_med") || "";
 let currentStation = (localStorage.getItem("med_station") || "ES0304").toUpperCase();
 let autoNext = (localStorage.getItem("autoNext_med") ?? "1") === "1";
+let qrScanner = null;
+let scannerRunning = false;
+let registros = [];
+let ultimoCodigo = "";
+let ultimoMomento = 0;
 
 let pendingEntries = null; // [{Operacion,Ubicacion,Maleta}, ...]
 let pendingCode = "";
+let DATA_MED = DATA;
+
+async function loadMedianosData(){
+  const localRaw = localStorage.getItem("qr_data_medianos");
+  if (localRaw) {
+    try {
+      const parsed = JSON.parse(localRaw);
+      if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+        DATA_MED = parsed;
+        return { source: "localStorage" };
+      }
+    } catch (_) {}
+  }
+
+  try {
+    const resp = await fetch("./data/medianos.json", { cache: "no-store" });
+    if (resp.ok) {
+      const fileData = await resp.json();
+      if (fileData && typeof fileData === "object" && Object.keys(fileData).length > 0) {
+        DATA_MED = fileData;
+        return { source: "archivo ./data/medianos.json" };
+      }
+    }
+  } catch (_) {}
+
+  DATA_MED = DATA;
+  return { source: "datos integrados" };
+}
 
 // ---- Switch estación ----
 const stationSwitch = document.getElementById("stationSwitch");
@@ -4850,7 +4910,7 @@ function ensureReady(){
 
 // ---- BÚSQUEDA QR en JSON (SIN INPUT DE COMPONENTE) ----
 function findEntriesForQR(station, model, qr){
-  const stNode = DATA?.[station];
+  const stNode = DATA_MED?.[station];
   const mNode = stNode?.[model];
   if (!mNode) return null;
 
@@ -4894,13 +4954,91 @@ function showOpSelector(entries, code){
 function selectOperation(idx){
   const e = pendingEntries?.[idx];
   if (!e) return;
+  const cantidad = askCantidad();
+  if (cantidad === null) return;
+  const code = pendingCode || "";
   hideOpSelector();
   const zona = normalizeZona(e.Ubicacion);
   const maleta = String(e.Maleta || "").trim();
   const diaSec = getDiaSec(e);
   setResult(zona, maleta, diaSec, "ENCONTRADO");
+  if (code) registros.push({codigo:code, cantidad, serie:currentSerie, modelo:currentModel, estacion:currentStation, detalle:`${zona} ${maleta}`.trim(), hora:fmtDate(new Date())});
+  actualizarTabla();
   vib(true);
   if (autoNext) setTimeout(()=>{ if(ensureReady()) $("file").click(); }, 700);
+}
+
+function fmtDate(d){ return new Intl.DateTimeFormat("es-ES", {dateStyle:"short", timeStyle:"medium"}).format(d); }
+
+function loadRegistros(){
+  try {
+    const raw = localStorage.getItem("registros_medianos");
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) registros = parsed;
+  } catch (_) {}
+}
+
+function saveRegistros(){
+  try { localStorage.setItem("registros_medianos", JSON.stringify(registros)); } catch (_) {}
+}
+
+function actualizarTabla(){
+  const tb = $("tbody"); if (!tb) return; tb.innerHTML = "";
+  registros.forEach((r,i)=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i+1}</td><td>${r.codigo}</td><td>${r.cantidad}</td><td>${r.serie}</td><td>${r.modelo}</td><td>${r.estacion}</td><td>${r.detalle}</td><td>${r.hora}</td>`;
+    tb.appendChild(tr);
+  });
+  if ($("totalRegistros")) $("totalRegistros").textContent = String(registros.length);
+  saveRegistros();
+}
+function askCantidad(){
+  const raw = prompt("Cantidad recibida para este material:", "1");
+  if (raw === null) return null;
+  const qty = Number(String(raw).replace(",", "."));
+  if (!Number.isFinite(qty) || qty <= 0) {
+    alert("Cantidad no válida. Debe ser mayor que 0.");
+    return null;
+  }
+  return qty;
+}
+
+function summaryText(){
+  const lines = ["# | Código | Cantidad | Serie | Modelo | Estación | Detalle | Hora", ...registros.map((r,i)=>`${i+1} | ${r.codigo} | ${r.cantidad} | ${r.serie} | ${r.modelo} | ${r.estacion} | ${r.detalle} | ${r.hora}`)];
+  return lines.join("\n");
+}
+async function startScanner(){
+  if (scannerRunning || !window.Html5Qrcode) return;
+  qrScanner = new Html5Qrcode("reader");
+  const cams = await Html5Qrcode.getCameras();
+  const cam = cams.find(c => /(back|rear|environment|trasera)/i.test(c.label||"")) || cams[0];
+  await qrScanner.start(cam.id || {facingMode:"environment"}, {fps:10, qrbox:{width:240,height:240}}, onScanSuccess, ()=>{});
+  scannerRunning = true;
+  if ($("scanState")) $("scanState").textContent = "Escáner activo";
+}
+function onScanSuccess(decodedText){
+  if (!ensureReady()) return;
+  const code = String(decodedText||"").trim().toUpperCase();
+  if (!code) return;
+  const now = Date.now();
+  if (code === ultimoCodigo && now - ultimoMomento < 2000) return;
+  ultimoCodigo = code; ultimoMomento = now;
+  const entries = findEntriesForQR(currentStation, currentModel, code);
+  if (!entries || !entries.length){
+    setResult("NO ENCONTRADO", "", "", "Sin coincidencia");
+    return;
+  }
+  const cantidad = askCantidad();
+  if (cantidad === null) return;
+
+  const e0 = entries[0];
+  const zona = normalizeZona(e0.Ubicacion);
+  const maleta = String(e0.Maleta || "").trim();
+  const diaSec = getDiaSec(e0);
+  setResult(zona, maleta, diaSec, "ENCONTRADO");
+  registros.push({codigo:code, cantidad, serie:currentSerie, modelo:currentModel, estacion:currentStation, detalle:`${zona} ${maleta}`.trim(), hora:fmtDate(new Date())});
+  actualizarTabla();
 }
 
 // ---- Botones ----
@@ -4920,7 +5058,7 @@ $("start").onclick = () => {
   hideOpSelector();
   setHeader();
   setResult("—", "", "", "OK: listo");
-  setTimeout(()=> $("file").click(), 150);
+  startScanner().catch(err => showErr(`No se pudo abrir cámara: ${err.message||err}`));
 };
 
 $("reset").onclick = () => {
@@ -4939,7 +5077,7 @@ $("scan").onclick = () => {
   if (!ensureReady()) return;
   showErr("");
   hideOpSelector();
-  $("file").click();
+  startScanner().catch(err => showErr(`No se pudo abrir cámara: ${err.message||err}`));
 };
 
 /* ===== QR decoding (BarcodeDetector -> jsQR fallback) ===== */
@@ -5045,9 +5183,25 @@ $("file").addEventListener("change", async (e)=>{
 });
 
 // ---- Init ----
-setStation(currentStation);
-setHeader();
-setResult("—", "", "", currentModel ? "OK: listo" : "Listo");
+(async () => {
+  const result = await loadMedianosData();
+  setStation(currentStation);
+  setHeader();
+  const baseStatus = currentModel ? "OK: listo" : "Listo";
+  loadRegistros();
+  actualizarTabla();
+  setResult("—", "", "", `${baseStatus} · Fuente: ${result.source}`);
+})();
+if ($("copyBtn")) $("copyBtn").onclick = async ()=> {
+  if (!registros.length) return alert("No hay registros todavía.");
+  try { await navigator.clipboard.writeText(summaryText()); alert("Tabla copiada al portapapeles."); } catch(_) { alert("No se pudo copiar en este dispositivo."); }
+};
+if ($("mailBtn")) $("mailBtn").onclick = ()=> {
+  if (!registros.length) return alert("No hay registros todavía.");
+  const subject = encodeURIComponent(`Recepción ${currentStation} (${registros.length} registros)`);
+  const body = encodeURIComponent("Resumen de recepción de materiales.\n\n" + summaryText());
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+};
 
 </script>
   <script>

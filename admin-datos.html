@@ -9,6 +9,7 @@
     .wrap{max-width:980px;margin:0 auto;padding:20px;display:grid;gap:14px}
     .card{background:#17181b;border:1px solid #2a2b31;border-radius:14px;padding:14px}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row.one{grid-template-columns:1fr}
     input,button,select{font-size:16px;padding:10px;border-radius:10px;border:1px solid #333}
     input,select{background:#0b0b0b;color:#fff;width:100%}
     button{background:#2b6cff;color:#fff;border:none;font-weight:800;cursor:pointer}
@@ -25,6 +26,7 @@
 
     <div class="card">
       <h2>1) GRANDES</h2>
+      <p class="hint">Columnas mínimas recomendadas: <strong>COCHE</strong> y <strong>COMPONENTE/QR</strong>. Si faltan, el resultado será 0 modelos y 0 QRs.</p>
       <div class="row">
         <input id="fileGrandes" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
         <div>
@@ -34,6 +36,9 @@
       <div style="margin-top:10px" class="row">
         <button id="applyGrandes" class="secondary">Aplicar a la app (localStorage)</button>
         <button id="downloadGrandes" class="secondary">Descargar JSON</button>
+      </div>
+      <div style="margin-top:10px" class="row one">
+        <button id="templateGrandes" class="secondary">Descargar plantilla GRANDES (Excel)</button>
       </div>
       <pre id="outGrandes">Sin procesar.</pre>
     </div>
@@ -54,9 +59,11 @@
         <button id="btnMedianos">Procesar MEDIANOS</button>
         <button id="applyMedianos" class="secondary">Aplicar a la app (localStorage)</button>
       </div>
-      <div style="margin-top:10px" class="row">
+      <div style="margin-top:10px" class="row one">
         <button id="downloadMedianos" class="secondary">Descargar JSON</button>
-        <button id="clearAll" class="secondary">Borrar datos cargados</button>
+      </div>
+      <div style="margin-top:10px" class="row one">
+        <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
       </div>
       <pre id="outMedianos">Sin procesar.</pre>
     </div>
@@ -79,6 +86,37 @@
     let lastGrandes = null;
     let lastMedianos = null;
 
+    function normalizeHeader(text){
+      return String(text || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toUpperCase()
+        .replace(/[\n\r]/g, " ")
+        .replace(/\s+/g, "")
+        .replace(/[º°]/g, "N")
+        .replace("N.", "N");
+    }
+
+    function hasAnyHeader(rows, aliases){
+      if (!rows?.length) return false;
+      const headers = Object.keys(rows[0] || {}).map(normalizeHeader);
+      return aliases.some(alias => headers.includes(normalizeHeader(alias)));
+    }
+
+    function analyzeGrandesRows(rows){
+      let validRows = 0;
+      rows.forEach((r) => {
+        const model = QRImporter.getFirst(r, ["COCHE", "MODELO", "MODEL"]);
+        const qr = QRImporter.getFirst(r, ["COMPONENTE", "QR", "CODIGOQR", "CODIGO", "COMPONENT"]);
+        if (model && qr) validRows += 1;
+      });
+      return {
+        totalRows: rows.length,
+        validRows,
+        skippedRows: rows.length - validRows,
+      };
+    }
+
     function toRows(workbook){
       const firstSheet = workbook.SheetNames[0];
       return XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {defval:""});
@@ -96,6 +134,53 @@
       a.download = filename;
       a.click();
       URL.revokeObjectURL(a.href);
+    }
+
+    function downloadWorkbook(filename, sheetName, rows){
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([wbout], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function downloadTemplateGrandes(){
+      const rows = [
+        {
+          COCHE: "Modelo_ejemplo",
+          COMPONENTE: "QR_0001",
+          TEXTOBREVEDEMATERIAL: "Operación de ejemplo",
+          UBICACIONDESEADA: "Ubicación 1",
+          BLOQUEBOL: "B1",
+          DESCRIPCIONDECOMOHAYQUEPREPARARELBLOQUE: "Instrucción de preparación",
+          DIASEC: "1",
+        },
+      ];
+      downloadWorkbook("plantilla-actualizacion-grandes.xlsx", "GRANDES", rows);
+    }
+
+    function downloadTemplateMedianos(){
+      const rows = [
+        {
+          ESTACION: "ES05",
+          COCHE: "Modelo_ejemplo",
+          MATERIAL: "COMP_PADRE_001",
+          "NºSERIE": "QR_0001",
+          TEXTOBREVEDEMATERIAL: "Operación de ejemplo",
+          UBICACIONDESEADA: "Ubicación 1",
+          MALETA: "M1",
+          DIASEC: "1",
+        },
+      ];
+      downloadWorkbook("plantilla-actualizacion-medianos.xlsx", "MEDIANOS", rows);
     }
 
     function countGrandes(data){
@@ -117,9 +202,29 @@
       if (!file) return alert("Selecciona primero el Excel de GRANDES");
       const wb = await readWorkbook(file);
       const rows = toRows(wb);
+      const hasModelHeader = hasAnyHeader(rows, ["COCHE", "MODELO", "MODEL"]);
+      const hasQrHeader = hasAnyHeader(rows, ["COMPONENTE", "QR", "CODIGOQR", "CODIGO", "COMPONENT"]);
+
       lastGrandes = QRImporter.buildGrandes(rows);
       const c = countGrandes(lastGrandes);
-      document.getElementById("outGrandes").textContent = `OK\nModelos: ${c.models}\nQRs: ${c.qrs}`;
+      const stats = analyzeGrandesRows(rows);
+
+      let message = `OK
+Filas leídas: ${stats.totalRows}
+Filas válidas: ${stats.validRows}
+Filas omitidas: ${stats.skippedRows}
+Modelos: ${c.models}
+QRs: ${c.qrs}`;
+
+      if (!hasModelHeader || !hasQrHeader) {
+        message += "\n\n⚠️ Cabeceras mínimas no detectadas.";
+        if (!hasModelHeader) message += "\n- Falta columna de modelo (COCHE/MODELO).";
+        if (!hasQrHeader) message += "\n- Falta columna de QR (COMPONENTE/QR/CODIGOQR).";
+      } else if (stats.totalRows > 0 && stats.validRows === 0) {
+        message += "\n\n⚠️ Se encontraron cabeceras, pero ninguna fila tiene COCHE y COMPONENTE/QR informados a la vez.";
+      }
+
+      document.getElementById("outGrandes").textContent = message;
     };
 
     document.getElementById("btnMedianos").onclick = async () => {
@@ -150,16 +255,19 @@
       downloadJson("grandes.json", lastGrandes);
     };
 
+    document.getElementById("templateGrandes").onclick = () => {
+      downloadTemplateGrandes();
+    };
+
+    document.getElementById("templateMedianos").onclick = () => {
+      downloadTemplateMedianos();
+    };
+
     document.getElementById("downloadMedianos").onclick = () => {
       if (!lastMedianos) return alert("Procesa primero MEDIANOS");
       downloadJson("medianos.json", lastMedianos);
     };
 
-    document.getElementById("clearAll").onclick = () => {
-      localStorage.removeItem(KEY_G);
-      localStorage.removeItem(KEY_M);
-      document.getElementById("status").innerHTML = '<span class="ok">Datos locales borrados.</span>';
-    };
   </script>
 </body>
 </html>
