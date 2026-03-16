@@ -28,6 +28,7 @@
     .output-row strong{color:#fff}
     .output-warn{margin:0;padding-left:18px;color:#ffd48a;font-size:13px}
     .output-warn li{margin:2px 0}
+    .ok{color:#7CFF9E}
     @media (max-width: 700px){
       .row{grid-template-columns:1fr}
       .medianos-actions{grid-template-columns:1fr}
@@ -101,6 +102,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="./js/data-importer-browser.js"></script>
   <script>
+    const KEY_G = "qr_data_grandes";
     let lastGrandes = null;
     let lastMedianos = null;
 
@@ -343,6 +345,11 @@ QRs: ${c.qrs}`;
       });
     };
 
+    document.getElementById("applyGrandes").onclick = () => {
+      if (!lastGrandes) return alert("Procesa primero GRANDES");
+      localStorage.setItem(KEY_G, JSON.stringify(lastGrandes));
+      document.getElementById("status").innerHTML = '<span class="ok">Grandes aplicado en este navegador.</span>';
+    };
 
     document.getElementById("downloadGrandes").onclick = () => {
       if (!lastGrandes) return alert("Procesa primero GRANDES");
