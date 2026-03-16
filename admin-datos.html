@@ -37,8 +37,9 @@
         <button id="applyGrandes" class="secondary">Aplicar a la app (localStorage)</button>
         <button id="downloadGrandes" class="secondary">Descargar JSON</button>
       </div>
-      <div style="margin-top:10px" class="row one">
+      <div style="margin-top:10px" class="row">
         <button id="templateGrandes" class="secondary">Descargar plantilla GRANDES (Excel)</button>
+        <div></div>
       </div>
       <pre id="outGrandes">Sin procesar.</pre>
     </div>
@@ -64,6 +65,10 @@
       </div>
       <div style="margin-top:10px" class="row one">
         <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <button id="templateMedianos" class="secondary">Descargar plantilla MEDIANOS (Excel)</button>
+        <div></div>
       </div>
       <pre id="outMedianos">Sin procesar.</pre>
     </div>
@@ -136,22 +141,6 @@
       URL.revokeObjectURL(a.href);
     }
 
-    function downloadWorkbook(filename, sheetName, rows){
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-
-      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-      const blob = new Blob([wbout], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }
-
     function downloadTemplateGrandes(){
       const rows = [
         {
@@ -164,23 +153,10 @@
           DIASEC: "1",
         },
       ];
-      downloadWorkbook("plantilla-actualizacion-grandes.xlsx", "GRANDES", rows);
-    }
-
-    function downloadTemplateMedianos(){
-      const rows = [
-        {
-          ESTACION: "ES05",
-          COCHE: "Modelo_ejemplo",
-          MATERIAL: "COMP_PADRE_001",
-          "NºSERIE": "QR_0001",
-          TEXTOBREVEDEMATERIAL: "Operación de ejemplo",
-          UBICACIONDESEADA: "Ubicación 1",
-          MALETA: "M1",
-          DIASEC: "1",
-        },
-      ];
-      downloadWorkbook("plantilla-actualizacion-medianos.xlsx", "MEDIANOS", rows);
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "GRANDES");
+      XLSX.writeFile(wb, "plantilla-actualizacion-grandes.xlsx");
     }
 
     function countGrandes(data){
@@ -257,10 +233,6 @@ QRs: ${c.qrs}`;
 
     document.getElementById("templateGrandes").onclick = () => {
       downloadTemplateGrandes();
-    };
-
-    document.getElementById("templateMedianos").onclick = () => {
-      downloadTemplateMedianos();
     };
 
     document.getElementById("downloadMedianos").onclick = () => {
