@@ -197,7 +197,7 @@
       currentModel: localStorage.getItem('model') || '',
       currentStation: (localStorage.getItem('gr_station') || 'ES0304').toUpperCase(),
       data: null,
-      dataLoaded: false,
+      dataLoaded: true,
       records: JSON.parse(localStorage.getItem('grandes_registros') || '[]'),
       scannerRunning: false,
       handlingScan: false,
