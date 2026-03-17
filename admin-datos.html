@@ -10,8 +10,6 @@
     .card{background:#17181b;border:1px solid #2a2b31;border-radius:14px;padding:14px}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .row.one{grid-template-columns:1fr}
-    .grandes-grid{display:grid;gap:14px}
-    .grandes-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .medianos-grid{display:grid;gap:14px}
     .medianos-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .field{display:grid;gap:6px}
@@ -30,9 +28,9 @@
     .output-row strong{color:#fff}
     .output-warn{margin:0;padding-left:18px;color:#ffd48a;font-size:13px}
     .output-warn li{margin:2px 0}
+    .ok{color:#7CFF9E}
     @media (max-width: 700px){
       .row{grid-template-columns:1fr}
-      .grandes-actions{grid-template-columns:1fr}
       .medianos-actions{grid-template-columns:1fr}
     }
   </style>
@@ -71,6 +69,14 @@
           <div class="output-row">Sin procesar.</div>
         </div>
       </div>
+      <div style="margin-top:10px" class="row one">
+        <button id="downloadGrandes" class="secondary">Descargar JSON</button>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <button id="templateGrandes" class="secondary">Descargar plantilla GRANDES (Excel)</button>
+        <div></div>
+      </div>
+      <pre id="outGrandes">Sin procesar.</pre>
     </div>
 
     <div class="card">
@@ -116,6 +122,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="./js/data-importer-browser.js"></script>
   <script>
+    const KEY_G = "qr_data_grandes";
     let lastGrandes = null;
     let lastMedianos = null;
 
@@ -263,13 +270,11 @@
     }
 
     function normalizeStationId(rawStation, fallback){
-      const s = String(rawStation || "").trim().toUpperCase().replace(/\s+/g, "");
+      const s = String(rawStation || "").trim().toUpperCase();
       if (!s) return fallback;
-      if (s === "ES0304" || s === "0304") return "ES0304";
-      if (s === "ES05" || s === "05" || s === "5") return "ES05";
-      const m = s.match(/^ES0?([0-9]{1,2})$/);
+      const m = s.match(/ES\s*0?([0-9]{1,2})/);
       if (m) return `ES${String(parseInt(m[1], 10)).padStart(2, "0")}`;
-      const m2 = s.match(/^0?([0-9]{1,2})$/);
+      const m2 = s.match(/0?([0-9]{1,2})/);
       if (m2) return `ES${String(parseInt(m2[1], 10)).padStart(2, "0")}`;
       return fallback;
     }
@@ -356,6 +361,7 @@
       XLSX.utils.book_append_sheet(wb, ws, "MEDIANOS");
       XLSX.writeFile(wb, "plantilla-actualizacion-medianos.xlsx");
     }
+
     document.getElementById("btnGrandes").onclick = async () => {
       const file = document.getElementById("fileGrandes").files?.[0];
       if (!file) {
@@ -428,6 +434,11 @@
       });
     };
 
+    document.getElementById("applyGrandes").onclick = () => {
+      if (!lastGrandes) return alert("Procesa primero GRANDES");
+      localStorage.setItem(KEY_G, JSON.stringify(lastGrandes));
+      document.getElementById("status").innerHTML = '<span class="ok">Grandes aplicado en este navegador.</span>';
+    };
 
     document.getElementById("downloadGrandes").onclick = () => {
       if (!lastGrandes) return alert("Procesa primero GRANDES");
