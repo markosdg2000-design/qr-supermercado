@@ -1,727 +1,519 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <meta name="theme-color" content="#0f1115" />
-  <title>QR Supermercado · Grandes</title>
-  <style>
-    :root{
-      --bg:#0f1115; --panel:#171a20; --panel-2:#1d2129; --line:#2a2f3a;
-      --text:#f5f7fb; --muted:#a5afc2; --blue:#2f6bff; --blue-2:#2454c9;
-      --ok:#1f9d55; --bad:#c43c3c; --shadow:0 12px 36px rgba(0,0,0,.34);
-      --radius:18px;
-    }
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-    body{min-height:100dvh}
-    button,input{font:inherit}
-    .app{max-width:860px;margin:0 auto;padding:14px 14px 96px}
-    .topbar{display:grid;gap:12px;margin-bottom:12px}
-    .station-toggle{display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 0}
-    .station-toggle .lbl{font-weight:800;font-size:clamp(20px,4vw,30px);letter-spacing:.4px;color:#c7d2ea}
-    .switch{position:relative;width:128px;height:66px;border:none;border-radius:999px;background:#0b1633;box-shadow:inset 0 0 0 1px #0f214d;cursor:pointer}
-    .switch .knob{position:absolute;top:7px;left:7px;width:52px;height:52px;border-radius:50%;background:#a8acb7;transition:left .2s ease;box-shadow:var(--shadow)}
-    .switch[data-on="true"] .knob{left:69px}
-    .hdr{font-size:clamp(17px,3.7vw,24px);color:var(--muted);line-height:1.3}
-    .pill{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:#0c0f14;border:1px solid var(--line);font-size:13px;font-weight:700;color:#dbe2f1}
-    .ok{background:rgba(31,157,85,.14);border-color:rgba(31,157,85,.35);color:#9be5b7}
-    .bad{background:rgba(196,60,60,.14);border-color:rgba(196,60,60,.35);color:#ffb1b1}
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px}
-    .muted{color:var(--muted)}
-    .grid{display:grid;gap:12px}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    label{display:grid;gap:6px;font-weight:700;color:#dfe7f8}
-    input{width:100%;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:#0b0d12;color:#fff;font-size:24px;letter-spacing:.5px}
-    .btn{appearance:none;border:none;border-radius:14px;padding:14px 16px;font-weight:900;cursor:pointer;background:var(--blue);color:#fff}
-    .btn:hover{background:var(--blue-2)}
-    .btn.secondary{background:#232833;color:#eef2fb}
-    .btn.secondary:hover{background:#2b3140}
-    .btn:disabled{opacity:.55;cursor:not-allowed}
-    .status{margin-top:10px;color:#d7def0;line-height:1.35}
-    .hint{font-size:14px;color:var(--muted)}
-    #readerWrap{display:none}
-    .scanMeta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
-    .videoBox{position:relative;overflow:hidden;border-radius:16px;background:#050607;border:1px solid var(--line);aspect-ratio:4 / 3;display:grid;place-items:center}
-    #reader{width:100%;height:100%}
-    #reader video{width:100%;height:100%;object-fit:cover;display:block}
-    .finder{pointer-events:none;position:absolute;inset:0;display:grid;place-items:center}
-    .finder::before{content:"";width:min(62vw,280px);height:min(62vw,280px);border:4px solid rgba(66,190,101,.92);border-radius:20px;box-shadow:0 0 0 999px rgba(0,0,0,.18) inset}
-    .lastGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-    .mini{background:#101319;border:1px solid var(--line);border-radius:14px;padding:12px}
-    .miniLabel{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
-    .miniValue{margin-top:6px;font-size:clamp(24px,5vw,34px);font-weight:900;color:#ff4d4f;line-height:1.05;word-break:break-word}
-    .miniValue.small{font-size:16px;color:#fff}
-    table{width:100%;border-collapse:collapse;min-width:640px}
-    th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;vertical-align:top}
-    th{position:sticky;top:0;background:var(--panel-2);z-index:1}
-    .tableWrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:#101319}
-    .footerActions{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(15,17,21,0),rgba(15,17,21,.94) 22%,rgba(15,17,21,1));display:flex;gap:10px;justify-content:center}
-    .footerActions .btn{max-width:420px;width:100%}
-    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;padding:16px;z-index:30}
-    .overlay.show{display:flex}
-    .dialog{width:min(740px,100%);background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:var(--shadow);max-height:min(88dvh,900px);overflow:auto}
-    .dialog h2{margin:0 0 12px;font-size:clamp(28px,5vw,46px);line-height:1.05}
-    .dialogGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
-    .dialogCard{background:#101319;border:1px solid var(--line);border-radius:16px;padding:14px}
-    .k{font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.45px}
-    .v{margin-top:8px;font-size:clamp(28px,5vw,52px);font-weight:1000;color:#ff4d4f;line-height:1.03;word-break:break-word}
-    .prep{font-size:clamp(18px,3.6vw,30px);color:#fff;font-weight:800;line-height:1.2}
-    .opList{display:grid;gap:10px;margin:12px 0}
-    .opBtn{text-align:left;background:#101319;border:1px solid var(--line);border-radius:16px;color:#fff;padding:14px 16px;font-weight:900;font-size:18px;cursor:pointer}
-    .opBtn small{display:block;margin-top:6px;color:#aab5ca;font-size:14px;font-weight:600}
-    .dialogActions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
-    @media (max-width:720px){
-      .app{padding-inline:10px}
-      .row,.lastGrid,.dialogGrid,.dialogActions{grid-template-columns:1fr}
-      input{font-size:20px}
-      .station-toggle .lbl{font-size:16px}
-      .switch{width:100px;height:54px}
-      .switch .knob{width:40px;height:40px;top:7px;left:7px}
-      .switch[data-on="true"] .knob{left:53px}
-      .footerActions{flex-direction:column}
-    }
-  </style>
-</head>
-<body>
-  <div class="app">
-    <div class="topbar">
-      <div class="station-toggle" title="Selecciona estación">
-        <span class="lbl">ES0304</span>
-        <button id="stationSwitch" class="switch" type="button" aria-label="Cambiar estación"><span class="knob"></span></button>
-        <span class="lbl">ES05</span>
-      </div>
-      <div id="hdr" class="hdr">Estación: — | Serie: — | Modelo: — <span class="pill">cámara embebida</span></div>
-    </div>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    currentSerie: localStorage.getItem('serie') || '',
+    currentModel: localStorage.getItem('model') || '',
+    currentStation: (localStorage.getItem('gr_station') || 'ES0304').toUpperCase(),
+    data: null,
+    dataLoaded: false,
+    records: JSON.parse(localStorage.getItem('grandes_registros') || '[]'),
+    scannerRunning: false,
+    handlingScan: false,
+    lastScanText: '',
+    lastScanAt: 0,
+    pendingQr: '',
+    pendingEntries: [],
+    html5Scanner: null,
+    detector: null,
+    mediaStream: null,
+    detectorLoopId: 0,
+  };
 
-    <section class="card">
-      <div class="grid">
-        <label>
-          <span>1) Nº de serie</span>
-          <input id="serie" inputmode="numeric" autocomplete="off" placeholder="Ej. 61553009" />
-        </label>
-        <div class="row">
-          <button id="start" class="btn" type="button">Activar cámara</button>
-          <button id="reset" class="btn secondary" type="button">Reset</button>
-        </div>
-        <div id="err" class="status"></div>
-        <div class="hint">Cuando el nº de serie sea válido, se abrirá el lector dentro de la página. Esta versión elimina duplicados visuales y prioriza velocidad en Android.</div>
-      </div>
-    </section>
+  const GRANDES_DATA_URL = './data/grandes.json?v=20260317';
 
-    <section class="card" id="readerWrap">
-      <div class="scanMeta">
-        <span id="scanState" class="pill bad">Escáner detenido</span>
-        <span id="cameraState" class="pill">Cámara: —</span>
-        <span id="dataState" class="pill">Datos: cargando…</span>
-      </div>
-      <div class="videoBox">
-        <div id="reader"></div>
-        <div class="finder"></div>
-      </div>
-      <div id="status" class="status">Preparando cámara…</div>
-    </section>
+  function showErr(text=''){ $('err').textContent = text; }
+  function setStatus(text=''){ $('status').textContent = text; }
+  function setScanState(text, ok=false){ const el=$('scanState'); el.textContent=text; el.className='pill ' + (ok ? 'ok' : 'bad'); }
+  function setCameraState(text){ $('cameraState').textContent = text; }
+  function setDataState(text, ok=false){ const el=$('dataState'); el.textContent=text; el.className='pill ' + (ok ? 'ok' : 'bad'); }
+  function vib(ok){ try{ navigator.vibrate && navigator.vibrate(ok ? 50 : [35,50,35]); }catch(_){} }
 
-    <section class="card">
-      <div class="muted" style="margin-bottom:10px;font-weight:800">Último resultado</div>
-      <div class="lastGrid">
-        <div class="mini">
-          <div class="miniLabel">Bloque BOL</div>
-          <div id="lastBloqueBol" class="miniValue">—</div>
-        </div>
-        <div class="mini">
-          <div class="miniLabel">Ubicación deseada</div>
-          <div id="lastUbicacion" class="miniValue">—</div>
-        </div>
-        <div class="mini">
-          <div class="miniLabel">Día secuencia</div>
-          <div id="lastDia" class="miniValue">—</div>
-        </div>
-        <div class="mini">
-          <div class="miniLabel">QR</div>
-          <div id="lastQr" class="miniValue small">—</div>
-        </div>
-      </div>
-      <div id="lastOperacion" class="status">Sin lecturas todavía.</div>
-    </section>
+  function cocheFromSerie(serieStr){
+    const s = Number(String(serieStr).trim());
+    if (!Number.isFinite(s)) return '';
+    if ((s>=61501000 && s<61502000) || (s>=61551000 && s<61552000)) return 'C130';
+    if ((s>=61502000 && s<61503000) || (s>=61552000 && s<61553000)) return 'C210';
+    if ((s>=61503000 && s<61504000) || (s>=61553000 && s<61554000)) return 'C310';
+    if ((s>=61504000 && s<61505000) || (s>=61554000 && s<=61555000)) return 'C120';
+    return '';
+  }
 
-    <section class="card">
-      <h3 style="margin:0 0 12px;font-size:clamp(24px,4vw,34px)">Registro de recepción</h3>
-      <div class="tableWrap">
-        <table>
-          <thead>
-            <tr><th>#</th><th>Código</th><th>Serie</th><th>Modelo</th><th>Estación</th><th>Detalle</th><th>Hora</th></tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+  function normalizeBloqueBol(v){
+    const s = String(v || '').trim().toUpperCase();
+    if (!s) return '—';
+    if (s.includes('CARPA')) return 'CARPA';
+    if (s.includes('MANUR')) return 'MANURACK';
+    if (s.includes('VERTICAL')) return 'VERTICAL';
+    return s;
+  }
 
-  <div id="overlay" class="overlay" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
-      <h2 id="dialogTitle">Resultado de escaneo</h2>
-      <div id="singlePane">
-        <div class="dialogGrid">
-          <div class="dialogCard"><div class="k">Bloque BOL</div><div id="mBloqueBol" class="v">—</div></div>
-          <div class="dialogCard"><div class="k">Ubicación deseada</div><div id="mUbicacion" class="v">—</div></div>
-          <div class="dialogCard"><div class="k">Día secuencia</div><div id="mDia" class="v">—</div></div>
-          <div class="dialogCard"><div class="k">QR</div><div id="mQr" class="v" style="font-size:clamp(18px,3.4vw,28px);color:#fff">—</div></div>
-        </div>
-        <div class="dialogCard">
-          <div class="k">Preparación / operación</div>
-          <div id="mPrep" class="prep">—</div>
-        </div>
-      </div>
-      <div id="multiPane" style="display:none">
-        <div class="muted" style="font-weight:800">Hay varias coincidencias para este QR. Elige la correcta.</div>
-        <div id="multiList" class="opList"></div>
-      </div>
-      <div class="dialogActions">
-        <button id="closeModalBtn" class="btn secondary" type="button">Cerrar</button>
-        <button id="continueBtn" class="btn" type="button">Seguir escaneando</button>
-      </div>
-    </div>
-  </div>
+  function normalizeUbicacion(v){
+    const s = String(v || '').trim().toUpperCase();
+    return s || '—';
+  }
 
-  <div class="footerActions">
-    <button id="copyBtn" class="btn secondary" type="button">📋 Copiar tabla</button>
-    <button id="mailBtn" class="btn" type="button">📧 Enviar resumen por correo</button>
-  </div>
+  function getDiaSec(entry){
+    const raw = entry?.DiaSec ?? entry?.DiaSecuencia ?? entry?.['Dia Sec.'] ?? entry?.['Día Sec.'] ?? '';
+    const value = String(raw ?? '').trim();
+    return value && value !== '0' ? value : '—';
+  }
 
-  <script src="https://unpkg.com/html5-qrcode"></script>
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const state = {
-      currentSerie: localStorage.getItem('serie') || '',
-      currentModel: localStorage.getItem('model') || '',
-      currentStation: (localStorage.getItem('gr_station') || 'ES0304').toUpperCase(),
-      data: null,
-      dataLoaded: false,
-      records: JSON.parse(localStorage.getItem('grandes_registros') || '[]'),
-      scannerRunning: false,
-      handlingScan: false,
-      lastScanText: '',
-      lastScanAt: 0,
-      pendingQr: '',
-      pendingEntries: [],
-      html5Scanner: null,
-      detector: null,
-      mediaStream: null,
-      detectorLoopId: 0,
-    };
+  function setHeader(){
+    $('hdr').innerHTML = `Estación: ${state.currentStation || '—'} | Serie: ${state.currentSerie || '—'} | Modelo: ${state.currentModel || '—'} <span class="pill">cámara embebida</span>`;
+  }
 
-    function showErr(text=''){ $('err').textContent = text; }
-    function setStatus(text=''){ $('status').textContent = text; }
-    function setScanState(text, ok=false){ const el=$('scanState'); el.textContent=text; el.className='pill ' + (ok ? 'ok' : 'bad'); }
-    function setCameraState(text){ $('cameraState').textContent = text; }
-    function setDataState(text, ok=false){ const el=$('dataState'); el.textContent=text; el.className='pill ' + (ok ? 'ok' : 'bad'); }
-    function vib(ok){ try{ navigator.vibrate && navigator.vibrate(ok ? 50 : [35,50,35]); }catch(_){} }
+  function setStation(st){
+    state.currentStation = (st || 'ES0304').toUpperCase();
+    localStorage.setItem('gr_station', state.currentStation);
+    $('stationSwitch').dataset.on = String(state.currentStation === 'ES05');
+    setHeader();
+  }
 
-    function cocheFromSerie(serieStr){
-      const s = Number(String(serieStr).trim());
-      if (!Number.isFinite(s)) return '';
-      if ((s>=61501000 && s<61502000) || (s>=61551000 && s<61552000)) return 'C130';
-      if ((s>=61502000 && s<61503000) || (s>=61552000 && s<61553000)) return 'C210';
-      if ((s>=61503000 && s<61504000) || (s>=61553000 && s<61554000)) return 'C310';
-      if ((s>=61504000 && s<61505000) || (s>=61554000 && s<=61555000)) return 'C120';
-      return '';
-    }
+  function getModelsForCurrentStation(){
+    const data = state.data || {};
+    if (data?.stations?.[state.currentStation]?.models) return data.stations[state.currentStation].models;
+    if (data?.models) return data.models;
+    if (data?.[state.currentStation]) return data[state.currentStation];
+    return {};
+  }
 
-    function normalizeBloqueBol(v){
-      const s = String(v || '').trim().toUpperCase();
-      if (!s) return '—';
-      if (s.includes('CARPA')) return 'CARPA';
-      if (s.includes('MANUR')) return 'MANURACK';
-      if (s.includes('VERTICAL')) return 'VERTICAL';
-      return s;
-    }
+  async function loadData(){
+    state.dataLoaded = false;
+    state.data = null;
+    setDataState('Datos: cargando…');
+    showErr('');
 
-    function normalizeUbicacion(v){
-      const s = String(v || '').trim().toUpperCase();
-      return s || '—';
-    }
+    const candidateStorageKeys = [
+      'qr_data_grandes',
+      'grandes_json',
+      'grandesData',
+      'qr_supermercado_grandes'
+    ];
 
-    function getDiaSec(entry){
-      const raw = entry?.DiaSec ?? entry?.DiaSecuencia ?? entry?.['Dia Sec.'] ?? entry?.['Día Sec.'] ?? '';
-      const value = String(raw ?? '').trim();
-      return value && value !== '0' ? value : '—';
-    }
+    for (const key of candidateStorageKeys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
 
-    function setHeader(){
-      $('hdr').innerHTML = `Estación: ${state.currentStation || '—'} | Serie: ${state.currentSerie || '—'} | Modelo: ${state.currentModel || '—'} <span class="pill">cámara embebida</span>`;
-    }
-
-    function setStation(st){
-      state.currentStation = (st || 'ES0304').toUpperCase();
-      localStorage.setItem('gr_station', state.currentStation);
-      $('stationSwitch').dataset.on = String(state.currentStation === 'ES05');
-      setHeader();
-    }
-
-    function getModelsForCurrentStation(){
-      const data = state.data || {};
-      if (data?.stations?.[state.currentStation]?.models) return data.stations[state.currentStation].models;
-      if (data?.models) return data.models;
-      if (data?.[state.currentStation]) return data[state.currentStation];
-      return {};
-    }
-
-    async function loadData(){
-      state.dataLoaded = false;
-      state.data = null;
-      setDataState('Datos: cargando…');
-      showErr('');
-
-      const candidateStorageKeys = [
-        'qr_data_grandes',
-        'grandes_json',
-        'grandesData',
-        'qr_supermercado_grandes'
-      ];
-
-      for (const key of candidateStorageKeys) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) continue;
-
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object') {
-            state.data = parsed;
-            state.dataLoaded = true;
-            setDataState(`Datos: localStorage (${key})`, true);
-            console.log('[GRANDES] Datos cargados desde localStorage:', key, parsed);
-            return;
-          }
-        } catch (err) {
-          console.warn(`[GRANDES] localStorage inválido en clave ${key}:`, err);
-        }
-      }
-
-      const candidateUrls = [
-        './data/grandes.json',
-        'data/grandes.json',
-        './grandes.json'
-      ];
-
-      let lastError = null;
-
-      for (const url of candidateUrls) {
-        try {
-          console.log('[GRANDES] Intentando cargar:', url);
-          const resp = await fetch(url, {
-            cache: 'no-store'
-          });
-
-          console.log('[GRANDES] Respuesta fetch:', url, resp.status, resp.ok);
-
-          if (!resp.ok) {
-            throw new Error(`HTTP ${resp.status}`);
-          }
-
-          const text = await resp.text();
-          if (!text || !text.trim()) {
-            throw new Error('archivo vacío');
-          }
-
-          let json;
-          try {
-            json = JSON.parse(text);
-          } catch (parseErr) {
-            throw new Error(`JSON inválido: ${parseErr.message}`);
-          }
-
-          if (!json || typeof json !== 'object') {
-            throw new Error('estructura JSON no válida');
-          }
-
-          state.data = json;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          state.data = parsed;
           state.dataLoaded = true;
-          setDataState(`Datos: ${url}`, true);
-          console.log('[GRANDES] Datos cargados correctamente desde', url, json);
+          setDataState(`Datos: localStorage (${key})`, true);
+          console.log('[GRANDES] Datos cargados desde localStorage:', key, parsed);
           return;
-
-        } catch (err) {
-          console.warn(`[GRANDES] Fallo cargando ${url}:`, err);
-          lastError = err;
         }
+      } catch (err) {
+        console.warn(`[GRANDES] localStorage inválido en clave ${key}:`, err);
+      }
+    }
+
+    try {
+      console.log('[GRANDES] Intentando cargar:', GRANDES_DATA_URL);
+      const resp = await fetch(GRANDES_DATA_URL, { cache: 'no-store' });
+      console.log('[GRANDES] Respuesta fetch:', resp.status, resp.ok, resp.url);
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
       }
 
+      const text = await resp.text();
+      if (!text || !text.trim()) {
+        throw new Error('archivo vacío');
+      }
+
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`JSON inválido: ${parseErr.message}`);
+      }
+
+      if (!json || typeof json !== 'object') {
+        throw new Error('estructura JSON no válida');
+      }
+
+      state.data = json;
+      state.dataLoaded = true;
+      setDataState('Datos: grandes.json', true);
+
+      try {
+        localStorage.setItem('qr_data_grandes', JSON.stringify(json));
+      } catch (_) {}
+
+      console.log('[GRANDES] Datos cargados correctamente desde grandes.json', json);
+    } catch (err) {
+      console.error('[GRANDES] Error cargando grandes.json:', err);
       state.dataLoaded = false;
       state.data = null;
       setDataState('Datos: error');
-      showErr(`No se ha podido cargar grandes.json (${lastError ? lastError.message : 'sin detalle'}). Revisa /data/grandes.json, el service worker y fuerza recarga.`);
+      showErr(`No se ha podido cargar grandes.json (${err.message}). Revisa que exista /data/grandes.json y fuerza recarga de la PWA.`);
     }
-    function renderRecords(){
-      const tbody = $('tbody');
-      tbody.innerHTML = '';
-      state.records.forEach((r, i) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(r.codigo)}</td><td>${escapeHtml(r.serie)}</td><td>${escapeHtml(r.modelo)}</td><td>${escapeHtml(r.estacion)}</td><td>${escapeHtml(r.detalle)}</td><td>${escapeHtml(r.hora)}</td>`;
-        tbody.appendChild(tr);
+  }
+
+  function renderRecords(){
+    const tbody = $('tbody');
+    tbody.innerHTML = '';
+    state.records.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(r.codigo)}</td><td>${escapeHtml(r.serie)}</td><td>${escapeHtml(r.modelo)}</td><td>${escapeHtml(r.estacion)}</td><td>${escapeHtml(r.detalle)}</td><td>${escapeHtml(r.hora)}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(text){
+    return String(text ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+
+  function saveRecords(){
+    localStorage.setItem('grandes_registros', JSON.stringify(state.records.slice(-300)));
+  }
+
+  function appendRecord(qr, entry){
+    const row = {
+      codigo: qr,
+      serie: state.currentSerie,
+      modelo: state.currentModel,
+      estacion: state.currentStation,
+      detalle: `${normalizeBloqueBol(entry?.BloqueBol)} · ${normalizeUbicacion(entry?.Ubicacion)} · ${entry?.Operacion || '—'}`,
+      hora: new Intl.DateTimeFormat('es-ES', { hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(new Date()),
+    };
+    state.records.unshift(row);
+    state.records = state.records.slice(0, 300);
+    saveRecords();
+    renderRecords();
+  }
+
+  function setLastResult(qr, entry){
+    $('lastQr').textContent = qr || '—';
+    $('lastBloqueBol').textContent = normalizeBloqueBol(entry?.BloqueBol);
+    $('lastUbicacion').textContent = normalizeUbicacion(entry?.Ubicacion);
+    $('lastDia').textContent = getDiaSec(entry);
+    $('lastOperacion').textContent = `Operación: ${entry?.Operacion || '—'}${entry?.InstruccionPrep ? ' | Prep: ' + entry.InstruccionPrep : ''}`;
+  }
+
+  function openOverlay(){ $('overlay').classList.add('show'); $('overlay').setAttribute('aria-hidden','false'); }
+  function closeOverlay(){ $('overlay').classList.remove('show'); $('overlay').setAttribute('aria-hidden','true'); }
+
+  function openSingleResult(qr, entry, notFound=false){
+    $('singlePane').style.display = 'block';
+    $('multiPane').style.display = 'none';
+    $('dialogTitle').textContent = notFound ? 'QR no encontrado' : 'Componente encontrado';
+    $('mBloqueBol').textContent = notFound ? 'NO ENCONTRADO' : normalizeBloqueBol(entry?.BloqueBol);
+    $('mUbicacion').textContent = notFound ? '—' : normalizeUbicacion(entry?.Ubicacion);
+    $('mDia').textContent = notFound ? '—' : getDiaSec(entry);
+    $('mQr').textContent = qr || '—';
+    $('mPrep').textContent = notFound
+      ? `Ese código no tiene coincidencia para el modelo ${state.currentModel || '—'}. Revisa QR, serie o base de datos.`
+      : `${entry?.Operacion || '—'}${entry?.InstruccionPrep ? ' | ' + entry.InstruccionPrep : ''}`;
+    openOverlay();
+  }
+
+  function openMultiResult(qr, entries){
+    $('singlePane').style.display = 'none';
+    $('multiPane').style.display = 'block';
+    $('dialogTitle').textContent = 'Varias coincidencias';
+    const list = $('multiList');
+    list.innerHTML = '';
+    entries.forEach((entry) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'opBtn';
+      btn.innerHTML = `${escapeHtml(entry?.Operacion || 'Sin operación')}<small>${escapeHtml(normalizeBloqueBol(entry?.BloqueBol))} · ${escapeHtml(normalizeUbicacion(entry?.Ubicacion))} · Día ${escapeHtml(getDiaSec(entry))}</small>`;
+      btn.addEventListener('click', () => {
+        appendRecord(qr, entry);
+        setLastResult(qr, entry);
+        openSingleResult(qr, entry, false);
       });
+      list.appendChild(btn);
+    });
+    openOverlay();
+  }
+
+  function isDuplicateFastScan(text){
+    const now = Date.now();
+    const same = text === state.lastScanText && (now - state.lastScanAt) < 1500;
+    state.lastScanText = text;
+    state.lastScanAt = now;
+    return same;
+  }
+
+  async function handleDecodedText(decodedText){
+    const raw = String(decodedText || '').trim().toUpperCase();
+    if (!raw || state.handlingScan) return;
+    if (isDuplicateFastScan(raw)) return;
+    state.handlingScan = true;
+    await pauseScanner();
+
+    const entries = getModelsForCurrentStation()?.[state.currentModel]?.[raw];
+    state.pendingQr = raw;
+    state.pendingEntries = Array.isArray(entries) ? entries : [];
+
+    if (!state.pendingEntries.length){
+      vib(false);
+      setStatus('QR no encontrado.');
+      openSingleResult(raw, null, true);
+      return;
     }
 
-    function escapeHtml(text){
-      return String(text ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    vib(true);
+    if (state.pendingEntries.length === 1){
+      const entry = state.pendingEntries[0];
+      appendRecord(raw, entry);
+      setLastResult(raw, entry);
+      setStatus('Componente encontrado.');
+      openSingleResult(raw, entry, false);
+    } else {
+      setStatus(`Coincidencias encontradas: ${state.pendingEntries.length}`);
+      openMultiResult(raw, state.pendingEntries);
     }
+  }
 
-    function saveRecords(){
-      localStorage.setItem('grandes_registros', JSON.stringify(state.records.slice(-300)));
+  async function closeModalAndResume(){
+    closeOverlay();
+    state.handlingScan = false;
+    await resumeScanner();
+    setStatus('Apunta al siguiente QR.');
+  }
+
+  async function stopDetectorLoop(){
+    if (state.detectorLoopId){
+      cancelAnimationFrame(state.detectorLoopId);
+      state.detectorLoopId = 0;
     }
-
-    function appendRecord(qr, entry){
-      const row = {
-        codigo: qr,
-        serie: state.currentSerie,
-        modelo: state.currentModel,
-        estacion: state.currentStation,
-        detalle: `${normalizeBloqueBol(entry?.BloqueBol)} · ${normalizeUbicacion(entry?.Ubicacion)} · ${entry?.Operacion || '—'}`,
-        hora: new Intl.DateTimeFormat('es-ES', { hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(new Date()),
-      };
-      state.records.unshift(row);
-      state.records = state.records.slice(0, 300);
-      saveRecords();
-      renderRecords();
+    if (state.mediaStream){
+      state.mediaStream.getTracks().forEach(t => t.stop());
+      state.mediaStream = null;
     }
+    const reader = $('reader');
+    reader.innerHTML = '';
+  }
 
-    function setLastResult(qr, entry){
-      $('lastQr').textContent = qr || '—';
-      $('lastBloqueBol').textContent = normalizeBloqueBol(entry?.BloqueBol);
-      $('lastUbicacion').textContent = normalizeUbicacion(entry?.Ubicacion);
-      $('lastDia').textContent = getDiaSec(entry);
-      $('lastOperacion').textContent = `Operación: ${entry?.Operacion || '—'}${entry?.InstruccionPrep ? ' | Prep: ' + entry.InstruccionPrep : ''}`;
+  async function stopHtml5(){
+    if (state.html5Scanner && state.scannerRunning){
+      try{ await state.html5Scanner.stop(); }catch(_){ }
+      try{ await state.html5Scanner.clear(); }catch(_){ }
     }
+  }
 
-    function openOverlay(){ $('overlay').classList.add('show'); $('overlay').setAttribute('aria-hidden','false'); }
-    function closeOverlay(){ $('overlay').classList.remove('show'); $('overlay').setAttribute('aria-hidden','true'); }
+  async function stopScanner(){
+    await stopDetectorLoop();
+    await stopHtml5();
+    state.scannerRunning = false;
+    setScanState('Escáner detenido', false);
+    setCameraState('Cámara: parada');
+  }
 
-    function openSingleResult(qr, entry, notFound=false){
-      $('singlePane').style.display = 'block';
-      $('multiPane').style.display = 'none';
-      $('dialogTitle').textContent = notFound ? 'QR no encontrado' : 'Componente encontrado';
-      $('mBloqueBol').textContent = notFound ? 'NO ENCONTRADO' : normalizeBloqueBol(entry?.BloqueBol);
-      $('mUbicacion').textContent = notFound ? '—' : normalizeUbicacion(entry?.Ubicacion);
-      $('mDia').textContent = notFound ? '—' : getDiaSec(entry);
-      $('mQr').textContent = qr || '—';
-      $('mPrep').textContent = notFound
-        ? `Ese código no tiene coincidencia para el modelo ${state.currentModel || '—'}. Revisa QR, serie o base de datos.`
-        : `${entry?.Operacion || '—'}${entry?.InstruccionPrep ? ' | ' + entry.InstruccionPrep : ''}`;
-      openOverlay();
+  async function pauseScanner(){
+    if (state.html5Scanner && typeof state.html5Scanner.pause === 'function'){
+      try{ state.html5Scanner.pause(true); return; }catch(_){ }
     }
-
-    function openMultiResult(qr, entries){
-      $('singlePane').style.display = 'none';
-      $('multiPane').style.display = 'block';
-      $('dialogTitle').textContent = 'Varias coincidencias';
-      const list = $('multiList');
-      list.innerHTML = '';
-      entries.forEach((entry) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'opBtn';
-        btn.innerHTML = `${escapeHtml(entry?.Operacion || 'Sin operación')}<small>${escapeHtml(normalizeBloqueBol(entry?.BloqueBol))} · ${escapeHtml(normalizeUbicacion(entry?.Ubicacion))} · Día ${escapeHtml(getDiaSec(entry))}</small>`;
-        btn.addEventListener('click', () => {
-          appendRecord(qr, entry);
-          setLastResult(qr, entry);
-          openSingleResult(qr, entry, false);
-        });
-        list.appendChild(btn);
-      });
-      openOverlay();
+    if (state.mediaStream){
+      state.mediaStream.getVideoTracks().forEach(t => t.enabled = false);
     }
+  }
 
-    function isDuplicateFastScan(text){
-      const now = Date.now();
-      const same = text === state.lastScanText && (now - state.lastScanAt) < 1500;
-      state.lastScanText = text;
-      state.lastScanAt = now;
-      return same;
+  async function resumeScanner(){
+    if (state.html5Scanner && typeof state.html5Scanner.resume === 'function'){
+      try{ state.html5Scanner.resume(); return; }catch(_){ }
     }
+    if (state.mediaStream){
+      state.mediaStream.getVideoTracks().forEach(t => t.enabled = true);
+      if (!state.detectorLoopId) startBarcodeLoop();
+    }
+  }
 
-    async function handleDecodedText(decodedText){
-      const raw = String(decodedText || '').trim().toUpperCase();
-      if (!raw || state.handlingScan) return;
-      if (isDuplicateFastScan(raw)) return;
-      state.handlingScan = true;
-      await pauseScanner();
-
-      const entries = getModelsForCurrentStation()?.[state.currentModel]?.[raw];
-      state.pendingQr = raw;
-      state.pendingEntries = Array.isArray(entries) ? entries : [];
-
-      if (!state.pendingEntries.length){
-        vib(false);
-        setStatus('QR no encontrado.');
-        openSingleResult(raw, null, true);
+  function startBarcodeLoop(){
+    const video = $('reader').querySelector('video');
+    if (!video || !state.detector) return;
+    const tick = async () => {
+      if (!state.mediaStream || state.handlingScan) {
+        state.detectorLoopId = requestAnimationFrame(tick);
         return;
       }
-
-      vib(true);
-      if (state.pendingEntries.length === 1){
-        const entry = state.pendingEntries[0];
-        appendRecord(raw, entry);
-        setLastResult(raw, entry);
-        setStatus('Componente encontrado.');
-        openSingleResult(raw, entry, false);
-      } else {
-        setStatus(`Coincidencias encontradas: ${state.pendingEntries.length}`);
-        openMultiResult(raw, state.pendingEntries);
-      }
-    }
-
-    async function closeModalAndResume(){
-      closeOverlay();
-      state.handlingScan = false;
-      await resumeScanner();
-      setStatus('Apunta al siguiente QR.');
-    }
-
-    async function stopDetectorLoop(){
-      if (state.detectorLoopId){
-        cancelAnimationFrame(state.detectorLoopId);
-        state.detectorLoopId = 0;
-      }
-      if (state.mediaStream){
-        state.mediaStream.getTracks().forEach(t => t.stop());
-        state.mediaStream = null;
-      }
-      const reader = $('reader');
-      reader.innerHTML = '';
-    }
-
-    async function stopHtml5(){
-      if (state.html5Scanner && state.scannerRunning){
-        try{ await state.html5Scanner.stop(); }catch(_){ }
-        try{ await state.html5Scanner.clear(); }catch(_){ }
-      }
-    }
-
-    async function stopScanner(){
-      await stopDetectorLoop();
-      await stopHtml5();
-      state.scannerRunning = false;
-      setScanState('Escáner detenido', false);
-      setCameraState('Cámara: parada');
-    }
-
-    async function pauseScanner(){
-      if (state.html5Scanner && typeof state.html5Scanner.pause === 'function'){
-        try{ state.html5Scanner.pause(true); return; }catch(_){ }
-      }
-      if (state.mediaStream){
-        state.mediaStream.getVideoTracks().forEach(t => t.enabled = false);
-      }
-    }
-
-    async function resumeScanner(){
-      if (state.html5Scanner && typeof state.html5Scanner.resume === 'function'){
-        try{ state.html5Scanner.resume(); return; }catch(_){ }
-      }
-      if (state.mediaStream){
-        state.mediaStream.getVideoTracks().forEach(t => t.enabled = true);
-        if (!state.detectorLoopId) startBarcodeLoop();
-      }
-    }
-
-    function startBarcodeLoop(){
-      const video = $('reader').querySelector('video');
-      if (!video || !state.detector) return;
-      const tick = async () => {
-        if (!state.mediaStream || state.handlingScan) {
-          state.detectorLoopId = requestAnimationFrame(tick);
-          return;
-        }
-        try{
-          if (video.readyState >= 2){
-            const codes = await state.detector.detect(video);
-            if (codes?.length){
-              const value = codes[0].rawValue;
-              if (value) {
-                await handleDecodedText(value);
-              }
+      try{
+        if (video.readyState >= 2){
+          const codes = await state.detector.detect(video);
+          if (codes?.length){
+            const value = codes[0].rawValue;
+            if (value) {
+              await handleDecodedText(value);
             }
           }
-        }catch(_){ }
-        state.detectorLoopId = requestAnimationFrame(tick);
-      };
-      state.detectorLoopId = requestAnimationFrame(tick);
-    }
-
-    async function startWithBarcodeDetector(){
-      state.detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio:false,
-        video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }
-      });
-      state.mediaStream = stream;
-      const video = document.createElement('video');
-      video.setAttribute('playsinline', 'true');
-      video.muted = true;
-      video.autoplay = true;
-      video.srcObject = stream;
-      $('reader').innerHTML = '';
-      $('reader').appendChild(video);
-      await video.play();
-      startBarcodeLoop();
-    }
-
-    async function startWithHtml5Qrcode(){
-      if (!state.html5Scanner) state.html5Scanner = new Html5Qrcode('reader');
-      const config = {
-        fps: 14,
-        rememberLastUsedCamera: true,
-        qrbox: (w,h) => {
-          const side = Math.max(180, Math.floor(Math.min(w,h) * 0.7));
-          return { width: side, height: side };
-        },
-        aspectRatio: 1.333333,
-        disableFlip: true,
-      };
-      try{
-        await state.html5Scanner.start({ facingMode: { exact: 'environment' } }, config, handleDecodedText, () => {});
-      }catch(_){
-        await state.html5Scanner.start({ facingMode: 'environment' }, config, handleDecodedText, () => {});
-      }
-    }
-
-    async function startScanner(){
-      if (!state.dataLoaded){
-        showErr('Los datos todavía no están cargados.');
-        return;
-      }
-      if (!state.currentModel){
-        showErr('Introduce un nº de serie válido.');
-        return;
-      }
-      if (state.scannerRunning) return;
-
-      $('readerWrap').style.display = 'block';
-      showErr('');
-      setStatus('Abriendo cámara...');
-      setScanState('Escáner iniciando…');
-      setCameraState('Cámara: solicitando permiso');
-
-      try{
-        await stopScanner();
-        if ('BarcodeDetector' in window){
-          await startWithBarcodeDetector();
-          setCameraState('Cámara: trasera (rápida)');
-        } else {
-          await startWithHtml5Qrcode();
-          setCameraState('Cámara: trasera');
         }
-        state.scannerRunning = true;
-        setScanState('Escaneando', true);
-        setStatus('Apunta al QR del componente.');
-      }catch(err){
-        console.error(err);
-        state.scannerRunning = false;
-        setScanState('Fallo cámara', false);
-        setCameraState('Cámara: error');
-        setStatus('No se ha podido abrir la cámara.');
-        showErr('No se ha podido abrir la cámara. Abre la PWA en HTTPS con Chrome o Edge y acepta permisos.');
-      }
+      }catch(_){ }
+      state.detectorLoopId = requestAnimationFrame(tick);
+    };
+    state.detectorLoopId = requestAnimationFrame(tick);
+  }
+
+  async function startWithBarcodeDetector(){
+    state.detector = new BarcodeDetector({ formats: ['qr_code'] });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio:false,
+      video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }
+    });
+    state.mediaStream = stream;
+    const video = document.createElement('video');
+    video.setAttribute('playsinline', 'true');
+    video.muted = true;
+    video.autoplay = true;
+    video.srcObject = stream;
+    $('reader').innerHTML = '';
+    $('reader').appendChild(video);
+    await video.play();
+    startBarcodeLoop();
+  }
+
+  async function startWithHtml5Qrcode(){
+    if (!state.html5Scanner) state.html5Scanner = new Html5Qrcode('reader');
+    const config = {
+      fps: 14,
+      rememberLastUsedCamera: true,
+      qrbox: (w,h) => {
+        const side = Math.max(180, Math.floor(Math.min(w,h) * 0.7));
+        return { width: side, height: side };
+      },
+      aspectRatio: 1.333333,
+      disableFlip: true,
+    };
+    try{
+      await state.html5Scanner.start({ facingMode: { exact: 'environment' } }, config, handleDecodedText, () => {});
+    }catch(_){
+      await state.html5Scanner.start({ facingMode: 'environment' }, config, handleDecodedText, () => {});
     }
+  }
 
-    function processSerieValue(autoStart=true){
-      const serie = $('serie').value.trim();
-      const model = cocheFromSerie(serie);
-
-      if (!serie){
-        state.currentSerie = '';
-        state.currentModel = '';
-        localStorage.removeItem('serie');
-        localStorage.removeItem('model');
-        setHeader();
-        showErr('');
-        return;
-      }
-      if (!model){
-        state.currentSerie = serie;
-        state.currentModel = '';
-        setHeader();
-        showErr('Serie fuera de rango.');
-        return;
-      }
-
-      state.currentSerie = serie;
-      state.currentModel = model;
-      localStorage.setItem('serie', serie);
-      localStorage.setItem('model', model);
-      setHeader();
-      showErr('');
-      if (autoStart) startScanner();
+  async function startScanner(){
+    if (!state.dataLoaded){
+      showErr('Los datos todavía no están cargados.');
+      return;
     }
-
-    function buildPlainTableText(){
-      const lines = ['#\tCódigo\tSerie\tModelo\tEstación\tDetalle\tHora'];
-      state.records.forEach((r, i) => lines.push(`${i+1}\t${r.codigo}\t${r.serie}\t${r.modelo}\t${r.estacion}\t${r.detalle}\t${r.hora}`));
-      return lines.join('\n');
+    if (!state.currentModel){
+      showErr('Introduce un nº de serie válido.');
+      return;
     }
+    if (state.scannerRunning) return;
 
-    async function copyTable(){
-      const text = buildPlainTableText();
-      try{ await navigator.clipboard.writeText(text); setStatus('Tabla copiada al portapapeles.'); }
-      catch(_){ setStatus('No se pudo copiar automáticamente.'); }
-    }
+    $('readerWrap').style.display = 'block';
+    showErr('');
+    setStatus('Abriendo cámara...');
+    setScanState('Escáner iniciando…');
+    setCameraState('Cámara: solicitando permiso');
 
-    function sendMail(){
-      const subject = encodeURIComponent(`Resumen recepción GRANDES ${state.currentStation}`);
-      const body = encodeURIComponent(buildPlainTableText());
-      window.location.href = `mailto:?subject=${subject}&body=${body}`;
-    }
-
-    $('stationSwitch').addEventListener('click', () => setStation(state.currentStation === 'ES05' ? 'ES0304' : 'ES05'));
-    $('serie').addEventListener('input', () => { if ($('serie').value.trim().length >= 8) processSerieValue(true); });
-    $('start').addEventListener('click', () => processSerieValue(true));
-    $('reset').addEventListener('click', async () => {
+    try{
       await stopScanner();
+      if ('BarcodeDetector' in window){
+        await startWithBarcodeDetector();
+        setCameraState('Cámara: trasera (rápida)');
+      } else {
+        await startWithHtml5Qrcode();
+        setCameraState('Cámara: trasera');
+      }
+      state.scannerRunning = true;
+      setScanState('Escaneando', true);
+      setStatus('Apunta al QR del componente.');
+    }catch(err){
+      console.error(err);
+      state.scannerRunning = false;
+      setScanState('Fallo cámara', false);
+      setCameraState('Cámara: error');
+      setStatus('No se ha podido abrir la cámara.');
+      showErr('No se ha podido abrir la cámara. Abre la PWA en HTTPS con Chrome o Edge y acepta permisos.');
+    }
+  }
+
+  function processSerieValue(autoStart=true){
+    const serie = $('serie').value.trim();
+    const model = cocheFromSerie(serie);
+
+    if (!serie){
       state.currentSerie = '';
       state.currentModel = '';
-      state.handlingScan = false;
-      state.pendingEntries = [];
-      state.pendingQr = '';
       localStorage.removeItem('serie');
       localStorage.removeItem('model');
-      $('serie').value = '';
-      $('readerWrap').style.display = 'none';
-      closeOverlay();
-      $('lastQr').textContent = '—';
-      $('lastBloqueBol').textContent = '—';
-      $('lastUbicacion').textContent = '—';
-      $('lastDia').textContent = '—';
-      $('lastOperacion').textContent = 'Sin lecturas todavía.';
       setHeader();
       showErr('');
-      setStatus('Listo.');
-    });
-    $('closeModalBtn').addEventListener('click', closeModalAndResume);
-    $('continueBtn').addEventListener('click', closeModalAndResume);
-    $('copyBtn').addEventListener('click', copyTable);
-    $('mailBtn').addEventListener('click', sendMail);
-    window.addEventListener('beforeunload', () => { stopScanner(); });
-
-    async function bootstrap(){
-      $('serie').value = state.currentSerie;
-      setStation(state.currentStation);
+      return;
+    }
+    if (!model){
+      state.currentSerie = serie;
+      state.currentModel = '';
       setHeader();
-      renderRecords();
-      setStatus(state.currentModel ? 'Modelo detectado. Cámara lista para arrancar.' : 'Introduce nº de serie.');
-      await loadData();
-      if (state.currentSerie && state.currentModel && state.dataLoaded){
-        $('readerWrap').style.display = 'block';
-        setTimeout(() => startScanner(), 250);
-      }
+      showErr('Serie fuera de rango.');
+      return;
     }
 
-    bootstrap();
-  </script>
+    state.currentSerie = serie;
+    state.currentModel = model;
+    localStorage.setItem('serie', serie);
+    localStorage.setItem('model', model);
+    setHeader();
+    showErr('');
+    if (autoStart) startScanner();
+  }
 
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js');
+  function buildPlainTableText(){
+    const lines = ['#\tCódigo\tSerie\tModelo\tEstación\tDetalle\tHora'];
+    state.records.forEach((r, i) => lines.push(`${i+1}\t${r.codigo}\t${r.serie}\t${r.modelo}\t${r.estacion}\t${r.detalle}\t${r.hora}`));
+    return lines.join('\n');
+  }
+
+  async function copyTable(){
+    const text = buildPlainTableText();
+    try{ await navigator.clipboard.writeText(text); setStatus('Tabla copiada al portapapeles.'); }
+    catch(_){ setStatus('No se pudo copiar automáticamente.'); }
+  }
+
+  function sendMail(){
+    const subject = encodeURIComponent(`Resumen recepción GRANDES ${state.currentStation}`);
+    const body = encodeURIComponent(buildPlainTableText());
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  }
+
+  $('stationSwitch').addEventListener('click', () => setStation(state.currentStation === 'ES05' ? 'ES0304' : 'ES05'));
+  $('serie').addEventListener('input', () => { if ($('serie').value.trim().length >= 8) processSerieValue(true); });
+  $('start').addEventListener('click', () => processSerieValue(true));
+  $('reset').addEventListener('click', async () => {
+    await stopScanner();
+    state.currentSerie = '';
+    state.currentModel = '';
+    state.handlingScan = false;
+    state.pendingEntries = [];
+    state.pendingQr = '';
+    localStorage.removeItem('serie');
+    localStorage.removeItem('model');
+    $('serie').value = '';
+    $('readerWrap').style.display = 'none';
+    closeOverlay();
+    $('lastQr').textContent = '—';
+    $('lastBloqueBol').textContent = '—';
+    $('lastUbicacion').textContent = '—';
+    $('lastDia').textContent = '—';
+    $('lastOperacion').textContent = 'Sin lecturas todavía.';
+    setHeader();
+    showErr('');
+    setStatus('Listo.');
+  });
+  $('closeModalBtn').addEventListener('click', closeModalAndResume);
+  $('continueBtn').addEventListener('click', closeModalAndResume);
+  $('copyBtn').addEventListener('click', copyTable);
+  $('mailBtn').addEventListener('click', sendMail);
+  window.addEventListener('beforeunload', () => { stopScanner(); });
+
+  async function bootstrap(){
+    $('serie').value = state.currentSerie;
+    setStation(state.currentStation);
+    setHeader();
+    renderRecords();
+    setStatus(state.currentModel ? 'Modelo detectado. Cámara lista para arrancar.' : 'Introduce nº de serie.');
+    await loadData();
+    if (state.currentSerie && state.currentModel && state.dataLoaded){
+      $('readerWrap').style.display = 'block';
+      setTimeout(() => startScanner(), 250);
     }
-  </script>
-</body>
-</html>
+  }
+
+  bootstrap();
+</script>
