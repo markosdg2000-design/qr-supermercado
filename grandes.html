@@ -1,4 +1,128 @@
-<script src="https://unpkg.com/html5-qrcode"></script>
+<!doctype html>
+<html lang="es">
+<head>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#111111">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Grandes Scan</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:#111;color:#fff}
+    header{padding:12px 14px;background:#1b1b1b;position:sticky;top:0;z-index:10}
+    .wrap{padding:12px;display:grid;gap:10px}
+    input,button{font-size:18px;padding:12px;border-radius:10px;border:1px solid #333}
+    input{width:100%;background:#0b0b0b;color:#fff}
+    button{background:#2b6cff;color:#fff;border:none;font-weight:900}
+    button.secondary{background:#333}
+    .card{background:#1b1b1b;border:1px solid #2a2a2a;border-radius:14px;padding:12px}
+    .muted{color:#bbb}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row>*{flex:1;min-width:140px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#0b0b0b;border:1px solid #2a2a2a;color:#bbb;font-size:12px}
+    .pill.ok{border-color:#1f8f4d;color:#84e1a2}
+    .pill.bad{border-color:#9c2f2f;color:#ff9999}
+    .hint{font-size:12px;color:#9a9a9a}
+    .station-toggle{display:flex;justify-content:center;align-items:center;gap:10px;margin-bottom:10px}
+    .station-toggle .lbl{font-weight:800;color:#b9c7ff;font-size:14px;min-width:64px;text-align:center}
+    .switch{width:96px;height:40px;border-radius:999px;border:1px solid #2a3a64;background:rgba(110,168,255,.18);position:relative;cursor:pointer}
+    .switch .knob{display:block;width:36px;height:36px;border-radius:999px;background:#e9f0ff;position:absolute;top:1px;left:2px;transition:transform .18s ease;box-shadow:0 8px 18px rgba(0,0,0,.35)}
+    .switch[data-on="true"] .knob{transform:translateX(54px)}
+    #reader{width:100%;border-radius:14px;overflow:hidden;min-height:220px;background:#000}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{border-bottom:1px solid #2a2a2a;padding:8px;text-align:left}
+    th{color:#bbb;font-weight:700}
+    .footerActions{position:fixed;left:12px;right:12px;bottom:14px;z-index:20;display:grid;gap:8px}
+    .footerAction{border-radius:999px;font-size:18px;box-shadow:0 8px 30px rgba(43,108,255,.35)}
+    #overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+    #overlay.show{display:flex}
+    .modal{width:min(720px,100%);background:#1b1b1b;border:1px solid #2a2a2a;border-radius:14px;padding:16px}
+    .modal h3{margin:0 0 10px}
+    .mini{font-size:14px;color:#bbb;margin-bottom:4px}
+    .value{font-size:20px;font-weight:800;margin-bottom:10px}
+    #multiList{display:grid;gap:8px;margin-top:8px;max-height:260px;overflow:auto}
+    .opBtn{background:#202020;border:1px solid #333;color:#fff;font-weight:800;text-align:left}
+    .opBtn small{display:block;color:#bbb;margin-top:4px;font-weight:600}
+  </style>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+<header>
+  <div class="station-toggle" title="Selecciona estación">
+    <span class="lbl">ES0304</span>
+    <button id="stationSwitch" class="switch" type="button" aria-label="Cambiar estación"><span class="knob"></span></button>
+    <span class="lbl">ES05</span>
+  </div>
+  <div id="hdr" class="muted">Estación: — | Serie: — | Modelo: —</div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="muted">1) Nº Serie</div>
+    <input id="serie" inputmode="numeric" placeholder="Ej. 61502009" />
+    <div class="row" style="margin-top:10px;">
+      <button id="start">Empezar</button>
+      <button id="reset" class="secondary">Reset</button>
+    </div>
+    <div id="err" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card" id="readerWrap" style="display:none;">
+    <div class="muted">2) Escaneo continuo (cámara trasera)</div>
+    <div class="row" style="margin-top:8px;align-items:center;">
+      <span id="scanState" class="pill">Escáner detenido</span>
+      <span id="cameraState" class="pill">Cámara: parada</span>
+      <span id="dataState" class="pill">Datos: —</span>
+    </div>
+    <div id="reader" style="margin-top:10px"></div>
+    <div id="status" class="hint" style="margin-top:8px;">Listo.</div>
+  </div>
+
+  <div class="card">
+    <div class="muted">Último resultado</div>
+    <div class="hint" style="margin-top:6px;">QR: <strong id="lastQr">—</strong></div>
+    <div class="hint">Bloque: <strong id="lastBloqueBol">—</strong></div>
+    <div class="hint">Ubicación: <strong id="lastUbicacion">—</strong></div>
+    <div class="hint">Día Sec.: <strong id="lastDia">—</strong></div>
+    <div class="hint">Operación: <strong id="lastOperacion">Sin lecturas todavía.</strong></div>
+  </div>
+
+  <div class="card" style="margin-bottom:120px;">
+    <h3 style="margin-top:0">Registro de recepción</h3>
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>#</th><th>Código</th><th>Serie</th><th>Modelo</th><th>Estación</th><th>Detalle</th><th>Hora</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="footerActions">
+  <button class="footerAction secondary" id="copyBtn">📋 Copiar tabla</button>
+  <button class="footerAction" id="mailBtn">📧 Enviar resumen por correo</button>
+</div>
+
+<div id="overlay" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <h3 id="dialogTitle">Resultado</h3>
+    <div id="singlePane">
+      <div class="mini">Bloque</div><div class="value" id="mBloqueBol">—</div>
+      <div class="mini">Ubicación</div><div class="value" id="mUbicacion">—</div>
+      <div class="mini">Día</div><div class="value" id="mDia">—</div>
+      <div class="mini">QR</div><div class="value" id="mQr">—</div>
+      <div class="mini">Detalle</div><div class="hint" id="mPrep">—</div>
+    </div>
+    <div id="multiPane" style="display:none;">
+      <div class="mini">Selecciona una coincidencia</div>
+      <div id="multiList"></div>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <button id="closeModalBtn" type="button" class="secondary">Cerrar</button>
+      <button id="continueBtn" type="button">Continuar</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const $ = (id) => document.getElementById(id);
   const state = {
@@ -476,3 +600,5 @@
 
   bootstrap();
 </script>
+</body>
+</html>
