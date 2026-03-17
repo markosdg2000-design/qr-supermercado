@@ -1,4 +1,4 @@
-const CACHE_NAME = "qr-supermercado-v4";
+const CACHE_NAME = "qr-supermercado-v7";
 const ASSETS = [
   "./",
   "./index.html",
