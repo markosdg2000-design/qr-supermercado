@@ -42,11 +42,31 @@
 
     <div class="card">
       <h2>1) GRANDES</h2>
-      <p class="hint">Columnas mínimas recomendadas: <strong>COCHE</strong> y <strong>COMPONENTE/QR</strong>. Si faltan, el resultado será 0 modelos y 0 QRs.</p>
-      <div class="row">
-        <input id="fileGrandes" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
-        <div>
-          <button id="btnGrandes">Procesar GRANDES</button>
+      <p class="hint">Carga un archivo, aplica estación por defecto cuando falte en origen y exporta el JSON normalizado.</p>
+      <div class="grandes-grid">
+        <div class="row">
+          <div class="field">
+            <label class="field-label" for="fileGrandes">Archivo Excel/CSV</label>
+            <input id="fileGrandes" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="stationGrandes">Estación por defecto</label>
+            <select id="stationGrandes">
+              <option value="ES05">ES05</option>
+              <option value="ES0304">ES0304</option>
+            </select>
+          </div>
+        </div>
+        <div class="row one">
+          <button id="btnGrandes" class="primary-wide">Procesar GRANDES</button>
+        </div>
+        <div class="grandes-actions">
+          <button id="downloadGrandes" class="secondary">Descargar JSON</button>
+          <button id="templateGrandes" class="secondary">Descargar plantilla GRANDES (Excel)</button>
+        </div>
+        <div id="outGrandes" class="output-box" aria-live="polite">
+          <h3>Resultado</h3>
+          <div class="output-row">Sin procesar.</div>
         </div>
       </div>
       <div style="margin-top:10px" class="row one">
@@ -123,17 +143,38 @@
       return aliases.some(alias => headers.includes(normalizeHeader(alias)));
     }
 
-    function analyzeGrandesRows(rows){
+    function analyzeGrandesRows(rows, defaultStation){
+      const stationSet = new Set();
+      const modelSet = new Set();
+      const warnings = [];
       let validRows = 0;
+
+      const hasModelHeader = hasAnyHeader(rows, ["COCHE", "MODELO", "MODEL"]);
+      const hasQrHeader = hasAnyHeader(rows, ["COMPONENTE", "QR", "CODIGOQR", "CODIGO", "COMPONENT"]);
+
       rows.forEach((r) => {
         const model = QRImporter.getFirst(r, ["COCHE", "MODELO", "MODEL"]);
         const qr = QRImporter.getFirst(r, ["COMPONENTE", "QR", "CODIGOQR", "CODIGO", "COMPONENT"]);
-        if (model && qr) validRows += 1;
+        if (!model || !qr) return;
+
+        validRows += 1;
+        modelSet.add(model);
+
+        const stationRaw = QRImporter.getFirst(r, ["ESTACION", "AGRUP", "AREA"]);
+        stationSet.add(normalizeStationId(stationRaw, defaultStation));
       });
+
+      if (!hasModelHeader) warnings.push("Falta columna de modelo (COCHE/MODELO).");
+      if (!hasQrHeader) warnings.push("Falta columna de componente/QR (COMPONENTE/QR/CODIGOQR).");
+      if (rows.length > 0 && validRows === 0) warnings.push("Ninguna fila contiene a la vez modelo y componente/QR.");
+
       return {
         totalRows: rows.length,
         validRows,
         skippedRows: rows.length - validRows,
+        stations: stationSet.size,
+        models: modelSet.size,
+        warnings,
       };
     }
 
@@ -159,13 +200,24 @@
     function downloadTemplateGrandes(){
       const rows = [
         {
-          COCHE: "Modelo_ejemplo",
-          COMPONENTE: "QR_0001",
-          TEXTOBREVEDEMATERIAL: "Operación de ejemplo",
-          UBICACIONDESEADA: "Ubicación 1",
-          BLOQUEBOL: "B1",
-          DESCRIPCIONDECOMOHAYQUEPREPARARELBLOQUE: "Instrucción de preparación",
+          ESTACION: "ES05",
+          COCHE: "C210",
+          COMPONENTE: "BB236952100PS504",
+          TEXTOBREVEDEMATERIAL: "Cablea-conecta convertidor bajo asiento",
+          UBICACIONDESEADA: "130-EMILIO",
+          BLOQUEBOL: "CARPA",
+          DESCRIPCIONDECOMOHAYQUEPREPARARELBLOQUE: "Confirmar con suministro",
           DIASEC: "1",
+        },
+        {
+          ESTACION: "ES0304",
+          COCHE: "C130",
+          COMPONENTE: "BB2360521220000",
+          TEXTOBREVEDEMATERIAL: "Conjunto vidrio frontal",
+          UBICACIONDESEADA: "130-P25",
+          BLOQUEBOL: "MANURACK",
+          DESCRIPCIONDECOMOHAYQUEPREPARARELBLOQUE: "Agrupar en pale europeo",
+          DIASEC: "2",
         },
       ];
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -175,10 +227,39 @@
     }
 
     function countGrandes(data){
-      const models = Object.keys(data?.models || {});
+      const stations = Object.keys(data?.stations || {});
+      let models = 0;
       let qrs = 0;
-      models.forEach(m => qrs += Object.keys(data.models[m] || {}).length);
-      return {models: models.length, qrs};
+      stations.forEach((station) => {
+        const modelsNode = data?.stations?.[station]?.models || {};
+        const modelKeys = Object.keys(modelsNode);
+        models += modelKeys.length;
+        modelKeys.forEach((m) => {
+          qrs += Object.keys(modelsNode[m] || {}).length;
+        });
+      });
+      return {stations: stations.length, models, qrs};
+    }
+
+
+    function renderGrandesOutput({fileName, station, stats}){
+      const out = document.getElementById("outGrandes");
+      const warningHtml = stats.warnings.length
+        ? `<ul class="output-warn">${stats.warnings.map(w => `<li>${w}</li>`).join("")}</ul>`
+        : "";
+
+      out.innerHTML = `
+        <h3>Resultado de importación</h3>
+        <div class="output-row"><strong>Archivo:</strong> ${fileName}</div>
+        <div class="output-row"><strong>Estación por defecto:</strong> ${station}</div>
+        <div class="output-row"><strong>Filas leídas:</strong> ${stats.totalRows}</div>
+        <div class="output-row"><strong>Filas válidas:</strong> ${stats.validRows}</div>
+        <div class="output-row"><strong>Filas omitidas:</strong> ${stats.skippedRows}</div>
+        <div class="output-row"><strong>Estaciones detectadas:</strong> ${stats.stations}</div>
+        <div class="output-row"><strong>Coches/modelos detectados:</strong> ${stats.models}</div>
+        <div class="output-row"><strong>QRs detectados:</strong> ${stats.qrs}</div>
+        ${warningHtml}
+      `;
     }
 
     function countMedianos(data){
@@ -283,32 +364,40 @@
 
     document.getElementById("btnGrandes").onclick = async () => {
       const file = document.getElementById("fileGrandes").files?.[0];
-      if (!file) return alert("Selecciona primero el Excel de GRANDES");
-      const wb = await readWorkbook(file);
-      const rows = toRows(wb);
-      const hasModelHeader = hasAnyHeader(rows, ["COCHE", "MODELO", "MODEL"]);
-      const hasQrHeader = hasAnyHeader(rows, ["COMPONENTE", "QR", "CODIGOQR", "CODIGO", "COMPONENT"]);
-
-      lastGrandes = QRImporter.buildGrandes(rows);
-      const c = countGrandes(lastGrandes);
-      const stats = analyzeGrandesRows(rows);
-
-      let message = `OK
-Filas leídas: ${stats.totalRows}
-Filas válidas: ${stats.validRows}
-Filas omitidas: ${stats.skippedRows}
-Modelos: ${c.models}
-QRs: ${c.qrs}`;
-
-      if (!hasModelHeader || !hasQrHeader) {
-        message += "\n\n⚠️ Cabeceras mínimas no detectadas.";
-        if (!hasModelHeader) message += "\n- Falta columna de modelo (COCHE/MODELO).";
-        if (!hasQrHeader) message += "\n- Falta columna de QR (COMPONENTE/QR/CODIGOQR).";
-      } else if (stats.totalRows > 0 && stats.validRows === 0) {
-        message += "\n\n⚠️ Se encontraron cabeceras, pero ninguna fila tiene COCHE y COMPONENTE/QR informados a la vez.";
+      if (!file) {
+        renderGrandesOutput({
+          fileName: "—",
+          station: document.getElementById("stationGrandes").value,
+          stats: {
+            totalRows: 0,
+            validRows: 0,
+            skippedRows: 0,
+            stations: 0,
+            models: 0,
+            qrs: 0,
+            warnings: ["Debes seleccionar un archivo Excel/CSV antes de procesar."],
+          },
+        });
+        return;
       }
 
-      document.getElementById("outGrandes").textContent = message;
+      const station = document.getElementById("stationGrandes").value;
+      const wb = await readWorkbook(file);
+      const rows = toRows(wb);
+      lastGrandes = QRImporter.buildGrandes(rows, station);
+      const c = countGrandes(lastGrandes);
+      const stats = analyzeGrandesRows(rows, station);
+
+      renderGrandesOutput({
+        fileName: file.name,
+        station,
+        stats: {
+          ...stats,
+          stations: c.stations,
+          models: c.models,
+          qrs: c.qrs,
+        },
+      });
     };
 
     document.getElementById("btnMedianos").onclick = async () => {

@@ -29,11 +29,14 @@
   }
 
   function normalizeStation(rawStation, fallback) {
-    const s = cleanValue(rawStation).toUpperCase();
+    const s = cleanValue(rawStation).toUpperCase().replace(/\s+/g, "");
     if (!s) return fallback;
-    const m = s.match(/ES\s*0?([0-9]{1,2})/);
+    if (s === "ES0304" || s === "0304") return "ES0304";
+    if (s === "ES05" || s === "05" || s === "5") return "ES05";
+
+    const m = s.match(/^ES0?([0-9]{1,2})$/);
     if (m) return `ES${String(parseInt(m[1], 10)).padStart(2, "0")}`;
-    const m2 = s.match(/0?([0-9]{1,2})/);
+    const m2 = s.match(/^0?([0-9]{1,2})$/);
     if (m2) return `ES${String(parseInt(m2[1], 10)).padStart(2, "0")}`;
     return fallback;
   }
@@ -42,10 +45,11 @@
     if (!arr.some((x) => JSON.stringify(x) === JSON.stringify(obj))) arr.push(obj);
   }
 
-  function buildGrandes(rows) {
-    const models = {};
+  function buildGrandes(rows, defaultStation) {
+    const stations = {};
 
     rows.forEach((r) => {
+      const station = normalizeStation(getFirst(r, ["ESTACION", "AGRUP", "AREA"]), defaultStation || "ES05");
       const model = getFirst(r, ["COCHE", "MODELO", "MODEL"]);
       const qr = getFirst(r, ["COMPONENTE", "QR", "CODIGOQR", "CODIGO", "COMPONENT"]);
       if (!model || !qr) return;
@@ -60,6 +64,8 @@
       const diaSec = getFirst(r, ["DIASEC", "DIASECUENCIA", "DIA SEC.", "DIA SEC", "DIA_SECUENCIA"]);
       if (diaSec) entry.DiaSec = diaSec;
 
+      stations[station] = stations[station] || { models: {} };
+      const models = stations[station].models;
       if (!models[model]) models[model] = {};
       if (!models[model][qr]) models[model][qr] = [];
       pushUnique(models[model][qr], entry);
@@ -67,7 +73,7 @@
 
     return {
       generated_utc: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-      models,
+      stations,
     };
   }
 
