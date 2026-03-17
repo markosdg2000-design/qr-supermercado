@@ -78,80 +78,39 @@
     return {};
   }
 
+
   async function loadData(){
     state.dataLoaded = false;
     state.data = null;
     setDataState('Datos: cargando…');
     showErr('');
-
-    const candidateStorageKeys = [
-      'qr_data_grandes',
-      'grandes_json',
-      'grandesData',
-      'qr_supermercado_grandes'
-    ];
-
-    for (const key of candidateStorageKeys) {
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          state.data = parsed;
-          state.dataLoaded = true;
-          setDataState(`Datos: localStorage (${key})`, true);
-          console.log('[GRANDES] Datos cargados desde localStorage:', key, parsed);
-          return;
-        }
-      } catch (err) {
-        console.warn(`[GRANDES] localStorage inválido en clave ${key}:`, err);
-      }
-    }
-
-    try {
-      console.log('[GRANDES] Intentando cargar:', GRANDES_DATA_URL);
-      const resp = await fetch(GRANDES_DATA_URL, { cache: 'no-store' });
-      console.log('[GRANDES] Respuesta fetch:', resp.status, resp.ok, resp.url);
-
+  
+    try{
+      const resp = await fetch('./data/grandes.json?v=20260317', { cache: 'no-store' });
+  
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`);
       }
-
-      const text = await resp.text();
-      if (!text || !text.trim()) {
-        throw new Error('archivo vacío');
-      }
-
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error(`JSON inválido: ${parseErr.message}`);
-      }
-
+  
+      const json = await resp.json();
+  
       if (!json || typeof json !== 'object') {
-        throw new Error('estructura JSON no válida');
+        throw new Error('JSON inválido');
       }
-
+  
       state.data = json;
       state.dataLoaded = true;
       setDataState('Datos: grandes.json', true);
-
-      try {
-        localStorage.setItem('qr_data_grandes', JSON.stringify(json));
-      } catch (_) {}
-
-      console.log('[GRANDES] Datos cargados correctamente desde grandes.json', json);
-    } catch (err) {
-      console.error('[GRANDES] Error cargando grandes.json:', err);
+      console.log('[GRANDES] JSON cargado correctamente:', json);
+    }catch(err){
+      console.error('[GRANDES] Error cargando ./data/grandes.json:', err);
       state.dataLoaded = false;
       state.data = null;
       setDataState('Datos: error');
-      showErr(`No se ha podido cargar grandes.json (${err.message}). Revisa que exista /data/grandes.json y fuerza recarga de la PWA.`);
+      showErr(`No se ha podido cargar ./data/grandes.json (${err.message}).`);
     }
   }
-
+  
   function renderRecords(){
     const tbody = $('tbody');
     tbody.innerHTML = '';
